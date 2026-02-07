@@ -67,6 +67,58 @@ function signJwt(payload) {
   return jwt.sign(payload, secret, { expiresIn: '1h' });
 }
 
+exports.getMe = async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    const doc = await db.collection(USERS_COLLECTION).doc(uid).get();
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const { email, displayName } = doc.data();
+    return res.status(200).json({ email: email || '', displayName: displayName || null });
+  } catch (err) {
+    console.error('Error in getMe:', err);
+    return res.status(500).json({ message: 'Failed to fetch profile' });
+  }
+};
+
+exports.changePassword = async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current password and new password are required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    }
+    const doc = await db.collection(USERS_COLLECTION).doc(uid).get();
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const user = doc.data();
+    const matches = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!matches) {
+      return res.status(401).json({ message: 'Current password is incorrect' });
+    }
+    const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await db.collection(USERS_COLLECTION).doc(uid).update({
+      passwordHash,
+      updatedAt: new Date().toISOString(),
+    });
+    return res.status(200).json({ message: 'Password updated successfully' });
+  } catch (err) {
+    console.error('Error in changePassword:', err);
+    return res.status(500).json({ message: 'Failed to change password' });
+  }
+};
+
 exports.register = async (req, res) => {
   try {
     if (!db) {
