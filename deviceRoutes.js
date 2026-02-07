@@ -16,7 +16,7 @@ router.post('/register', authMiddleware, async (req, res) => {
     }
 
     const uid = req.user.uid;
-    const { deviceId, pqcPublicKey, pqcAlgorithm, platform, pushToken } =
+    const { deviceId, pqcPublicKey, pqcAlgorithm, platform, pushToken, rememberDevice } =
       req.body;
 
     if (!pqcPublicKey || !pqcAlgorithm) {
@@ -35,6 +35,10 @@ router.post('/register', authMiddleware, async (req, res) => {
       .limit(1)
       .get();
 
+    const trustedUntil = rememberDevice
+      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+
     if (querySnap.empty) {
       await db.collection(DEVICES_COLLECTION).add({
         uid,
@@ -43,20 +47,23 @@ router.post('/register', authMiddleware, async (req, res) => {
         pqcAlgorithm,
         platform: platform || null,
         pushToken: pushToken || null,
+        trustedUntil,
         createdAt: now,
         updatedAt: now,
         lastSeenAt: now,
       });
     } else {
       const docRef = querySnap.docs[0].ref;
-      await docRef.update({
+      const update = {
         pqcPublicKey,
         pqcAlgorithm,
         platform: platform || null,
         pushToken: pushToken || null,
         updatedAt: now,
         lastSeenAt: now,
-      });
+      };
+      if (rememberDevice) update.trustedUntil = trustedUntil;
+      await docRef.update(update);
     }
 
     return res.status(200).json({

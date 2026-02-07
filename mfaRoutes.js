@@ -256,6 +256,13 @@ router.post('/resolve', authMiddleware, async (req, res) => {
       signature: signature || null,
     });
 
+    await db.collection('users').doc(challenge.uid).collection('mfaHistory').add({
+      challengeId,
+      decision,
+      deviceId: deviceId || null,
+      timestamp: new Date().toISOString(),
+    });
+
     return res.status(200).json({
       challengeId,
       status: decision,
@@ -264,6 +271,31 @@ router.post('/resolve', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('Error in /api/mfa/resolve:', err);
     return res.status(500).json({ message: 'Failed to resolve MFA challenge' });
+  }
+});
+
+// Get MFA history (requires JWT)
+router.get('/history', authMiddleware, async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ message: 'Firestore is not configured' });
+    }
+    const uid = req.user?.uid;
+    if (!uid) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    const snap = await db
+      .collection('users')
+      .doc(uid)
+      .collection('mfaHistory')
+      .orderBy('timestamp', 'desc')
+      .limit(50)
+      .get();
+    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return res.status(200).json({ history: items });
+  } catch (err) {
+    console.error('Error in /api/mfa/history:', err);
+    return res.status(500).json({ message: 'Failed to get MFA history' });
   }
 });
 

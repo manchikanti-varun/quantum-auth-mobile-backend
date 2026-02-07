@@ -186,6 +186,32 @@ exports.login = async (req, res) => {
       });
     }
 
+    // Remember device: if this device is trusted, skip MFA
+    const deviceSnap = await db
+      .collection('devices')
+      .where('uid', '==', uid)
+      .where('deviceId', '==', deviceId)
+      .limit(1)
+      .get();
+    if (!deviceSnap.empty) {
+      const dev = deviceSnap.docs[0].data();
+      if (dev.trustedUntil && new Date(dev.trustedUntil) > new Date()) {
+        const token = signJwt({ uid, email: user.email });
+        await db.collection(USERS_COLLECTION).doc(uid).collection('loginHistory').add({
+          deviceId,
+          ip: req.ip || req.connection?.remoteAddress || '',
+          method: 'remember_device',
+          timestamp: new Date().toISOString(),
+        });
+        return res.status(200).json({
+          uid,
+          email: user.email,
+          displayName: user.displayName,
+          token,
+        });
+      }
+    }
+
     // Reuse existing pending challenge for this device (prevents duplicate challenges from rapid taps)
     const existingSnap = await db
       .collection(MFA_CHALLENGES_COLLECTION)
@@ -313,6 +339,12 @@ exports.getLoginStatus = async (req, res) => {
       }
       const user = userSnap.data();
       const token = signJwt({ uid: challenge.uid, email: user.email });
+      await db.collection(USERS_COLLECTION).doc(challenge.uid).collection('loginHistory').add({
+        deviceId: challenge.requestingDeviceId,
+        ip: challenge.context?.ip || '',
+        method: 'mfa_approved',
+        timestamp: new Date().toISOString(),
+      });
       return res.status(200).json({
         status: 'approved',
         token,
@@ -399,6 +431,12 @@ exports.loginWithOtp = async (req, res) => {
     });
 
     const token = signJwt({ uid: challenge.uid, email: user.email });
+    await db.collection(USERS_COLLECTION).doc(challenge.uid).collection('loginHistory').add({
+      deviceId,
+      ip: req.ip || req.connection?.remoteAddress || '',
+      method: 'otp',
+      timestamp: new Date().toISOString(),
+    });
     return res.status(200).json({
       status: 'approved',
       token,
@@ -409,6 +447,31 @@ exports.loginWithOtp = async (req, res) => {
   } catch (err) {
     console.error('Error in loginWithOtp:', err);
     return res.status(500).json({ message: 'Failed to complete login' });
+  }
+};
+
+// Get login history (requires JWT)
+exports.getLoginHistory = async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ message: 'Firestore is not configured' });
+    }
+    const uid = req.user?.uid;
+    if (!uid) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    const snap = await db
+      .collection(USERS_COLLECTION)
+      .doc(uid)
+      .collection('loginHistory')
+      .orderBy('timestamp', 'desc')
+      .limit(50)
+      .get();
+    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return res.status(200).json({ history: items });
+  } catch (err) {
+    console.error('Error in getLoginHistory:', err);
+    return res.status(500).json({ message: 'Failed to get login history' });
   }
 };
 
