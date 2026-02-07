@@ -1,7 +1,10 @@
 /**
  * QSafe backend – Express server, auth, TOTP, devices, MFA routes.
+ * In production, env vars come from the host (Railway); dotenv only for local dev.
  */
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 const express = require('express');
 const cors = require('cors');
 const authRoutes = require('./authRoutes');
