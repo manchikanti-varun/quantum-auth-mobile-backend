@@ -1,9 +1,6 @@
 /**
  * Firebase – Firestore init; handles Railway env (quoted private key).
  */
-/**
- * Firebase – Firestore init; handles Railway env (quoted private key).
- */
 const admin = require('firebase-admin');
 
 let app;

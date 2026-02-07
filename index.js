@@ -1,9 +1,6 @@
 /**
  * QSafe backend – Express server, auth, TOTP, devices, MFA routes.
  */
-/**
- * QSafe backend – Express server, auth, TOTP, devices, MFA routes.
- */
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');

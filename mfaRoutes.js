@@ -1,9 +1,6 @@
 /**
  * MFA routes – create challenge, approve/deny with PQC signature, push notifications.
  */
-/**
- * MFA routes – create challenge, approve/deny with PQC signature, push notifications.
- */
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('./firebase');
@@ -128,7 +125,7 @@ router.get('/pending', authMiddleware, async (req, res) => {
       return res.status(404).json({ message: 'Device not found' });
     }
 
-    // Find pending challenge for this user (get most recent)
+    // Find pending challenge for this user
     const challengeSnap = await db
       .collection(MFA_CHALLENGES_COLLECTION)
       .where('uid', '==', uid)
@@ -279,6 +276,53 @@ router.post('/resolve', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('Error in /api/mfa/resolve:', err);
     return res.status(500).json({ message: 'Failed to resolve MFA challenge' });
+  }
+});
+
+// Generate one-time code for Device 2 to enter (Device 1 flow; requires JWT)
+router.post('/generate-code', authMiddleware, async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ message: 'Firestore is not configured' });
+    }
+    const { challengeId } = req.body;
+    if (!challengeId) {
+      return res.status(400).json({ message: 'challengeId is required' });
+    }
+    const uid = req.user.uid;
+
+    const challengeSnap = await db
+      .collection(MFA_CHALLENGES_COLLECTION)
+      .where('challengeId', '==', challengeId)
+      .limit(1)
+      .get();
+
+    if (challengeSnap.empty) {
+      return res.status(404).json({ message: 'Challenge not found' });
+    }
+
+    const challengeDoc = challengeSnap.docs[0];
+    const challenge = challengeDoc.data();
+
+    if (challenge.uid !== uid || challenge.status !== 'pending') {
+      return res.status(403).json({ message: 'Challenge not yours or already resolved' });
+    }
+    if (new Date(challenge.expiresAt) < new Date()) {
+      return res.status(400).json({ message: 'Challenge expired' });
+    }
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const codeExpiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+    await challengeDoc.ref.update({
+      oneTimeCode: code,
+      oneTimeCodeExpiresAt: codeExpiresAt,
+    });
+
+    return res.status(200).json({ code, expiresIn: 300 });
+  } catch (err) {
+    console.error('Error in generate-code:', err);
+    return res.status(500).json({ message: 'Failed to generate code' });
   }
 });
 

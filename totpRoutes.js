@@ -1,9 +1,6 @@
 /**
  * TOTP routes – provision QR for testing; optionally linked to issuer/account.
  */
-/**
- * TOTP routes – provision QR for testing; optionally linked to issuer/account.
- */
 const express = require('express');
 const QRCode = require('qrcode');
 const crypto = require('crypto');

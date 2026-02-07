@@ -1,9 +1,6 @@
 /**
  * Device routes – register device, PQC public key; list devices; delete.
  */
-/**
- * Device routes – register device, PQC public key; list devices; delete.
- */
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('./firebase');
@@ -68,7 +65,7 @@ router.post('/register', authMiddleware, async (req, res) => {
         updatedAt: now,
         lastSeenAt: now,
       };
-      if (rememberDevice) update.trustedUntil = trustedUntil;
+      update.trustedUntil = rememberDevice ? trustedUntil : null;
       await docRef.update(update);
     }
 
