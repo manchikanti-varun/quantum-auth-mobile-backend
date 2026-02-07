@@ -1,4 +1,5 @@
 # Production build: omit devDependencies
 # Set NODE_ENV=production in Railway Variables dashboard
+# Node 20 required for undici File API (expo-server-sdk) - use .nvmrc
 [phases.install]
 cmds = ["npm install --omit=dev"]
