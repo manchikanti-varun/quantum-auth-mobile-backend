@@ -534,18 +534,42 @@ exports.getLoginHistory = async (req, res) => {
     if (!uid) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
-    const snap = await db
-      .collection(USERS_COLLECTION)
-      .doc(uid)
-      .collection('loginHistory')
-      .orderBy('timestamp', 'desc')
-      .limit(50)
-      .get();
-    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    return res.status(200).json({ history: items });
+    const [historySnap, devicesSnap] = await Promise.all([
+      db.collection(USERS_COLLECTION).doc(uid).collection('loginHistory').orderBy('timestamp', 'desc').limit(50).get(),
+      db.collection('devices').where('uid', '==', uid).orderBy('createdAt', 'asc').limit(1).get(),
+    ]);
+    const items = historySnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const firstDeviceId = !devicesSnap.empty ? devicesSnap.docs[0].data().deviceId : null;
+    return res.status(200).json({ history: items, firstDeviceId });
   } catch (err) {
     console.error('Error in getLoginHistory:', err);
     return res.status(500).json({ message: 'Failed to get login history' });
+  }
+};
+
+exports.deleteLoginHistoryEntry = async (req, res) => {
+  try {
+    if (!db) return res.status(500).json({ message: 'Firestore is not configured' });
+    const uid = req.user?.uid;
+    const { id } = req.params;
+    const { deviceId: currentDeviceId } = req.body;
+    if (!uid || !id) return res.status(400).json({ message: 'Missing id' });
+    if (!currentDeviceId) return res.status(400).json({ message: 'deviceId required in body' });
+    const docRef = db.collection(USERS_COLLECTION).doc(uid).collection('loginHistory').doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) return res.status(404).json({ message: 'Entry not found' });
+    const entryDeviceId = doc.data().deviceId;
+    if (entryDeviceId === currentDeviceId) return res.status(403).json({ message: 'Cannot delete your own login' });
+    const firstSnap = await db.collection('devices').where('uid', '==', uid).orderBy('createdAt', 'asc').limit(1).get();
+    const firstDeviceId = !firstSnap.empty ? firstSnap.docs[0].data().deviceId : null;
+    if (firstDeviceId && entryDeviceId === firstDeviceId && currentDeviceId !== firstDeviceId) {
+      return res.status(403).json({ message: 'Cannot delete first device login' });
+    }
+    await docRef.delete();
+    return res.status(200).json({ message: 'Deleted' });
+  } catch (err) {
+    console.error('Error in deleteLoginHistoryEntry:', err);
+    return res.status(500).json({ message: 'Failed to delete' });
   }
 };
 
