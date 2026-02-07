@@ -158,7 +158,7 @@ router.post('/resolve', authMiddleware, async (req, res) => {
         .json({ message: 'Firestore is not configured on the server' });
     }
 
-    const { challengeId, decision, signature, deviceId } = req.body;
+    const { challengeId, decision, signature, deviceId, flagged } = req.body;
 
     if (!challengeId || !decision || !signature) {
       return res.status(400).json({
@@ -261,6 +261,8 @@ router.post('/resolve', authMiddleware, async (req, res) => {
       decision,
       deviceId: deviceId || null,
       timestamp: new Date().toISOString(),
+      flagged: !!flagged,
+      context: challenge.context || {},
     });
 
     return res.status(200).json({

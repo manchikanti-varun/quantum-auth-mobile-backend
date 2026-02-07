@@ -238,6 +238,7 @@ exports.login = async (req, res) => {
     const context = {
       ip: req.ip || req.connection?.remoteAddress || '',
       userAgent: req.get('user-agent') || '',
+      timestamp: new Date().toISOString(),
     };
 
     await db.collection(MFA_CHALLENGES_COLLECTION).add({
