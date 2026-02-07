@@ -1,6 +1,14 @@
 # QSafe Backend
 
-Node.js + Express API for QSafe. Handles auth, device registration, MFA challenges, and TOTP backup.
+Node.js + Express API for QSafe – quantum-safe authenticator. Handles auth, device registration, MFA challenges, and TOTP backup.
+
+## Features
+
+- **Auth**: Register, login, JWT tokens
+- **MFA**: Approve/deny login on another device (PQC signatures)
+- **TOTP**: Provision QR codes for authenticator apps
+- **Devices**: Register devices with PQC keys, push notifications
+- **Production**: Helmet, rate limiting, env validation, CORS
 
 ---
 
@@ -17,21 +25,22 @@ Edit `.env` with your credentials.
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `PORT` | Server port (default 4000) |
-| `JWT_SECRET` | Secret for signing JWTs |
-| `FIREBASE_PROJECT_ID` | Firebase project ID |
-| `FIREBASE_CLIENT_EMAIL` | Firebase service account email |
-| `FIREBASE_PRIVATE_KEY` | Firebase private key (use `\n` for newlines) |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PORT` | No | Server port (default: 4000) |
+| `NODE_ENV` | No | `development` or `production` |
+| `JWT_SECRET` | Yes | Secret for signing JWTs (32+ chars in production) |
+| `FIREBASE_PROJECT_ID` | Yes | Firebase project ID |
+| `FIREBASE_CLIENT_EMAIL` | Yes | Firebase service account email |
+| `FIREBASE_PRIVATE_KEY` | Yes | Firebase private key (use `\n` for newlines) |
+| `CORS_ORIGIN` | No | Comma-separated allowed origins |
 
 ---
 
 ## Run
 
-```bash
-npm run dev
-```
+**Development:** `NODE_ENV=development npm run dev`  
+**Production:** `npm start`
 
 Server runs at `http://localhost:4000` (or `PORT` from `.env`).
 
@@ -41,30 +50,43 @@ Server runs at `http://localhost:4000` (or `PORT` from `.env`).
 
 ### Auth
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/register` | Register user |
-| POST | `/api/auth/login` | Login (returns token or `requiresMfa` + `challengeId`) |
-| GET | `/api/auth/login-status` | Poll for MFA result |
-| POST | `/api/auth/login-with-otp` | Complete login with 6-digit backup code |
-| GET | `/api/auth/me` | Get profile (JWT required) |
-| POST | `/api/auth/change-password` | Change password (JWT required) |
-| POST | `/api/auth/setup-backup-otp` | Set backup TOTP (JWT required) |
-| GET | `/api/auth/login-history` | Login history (JWT required) |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/auth/register` | No | Register user |
+| POST | `/api/auth/login` | No | Login |
+| GET | `/api/auth/login-status` | No | Poll for MFA result |
+| POST | `/api/auth/login-with-otp` | No | Complete login with 6-digit backup code |
+| GET | `/api/auth/me` | JWT | Get profile |
+| POST | `/api/auth/change-password` | JWT | Change password |
+| POST | `/api/auth/setup-backup-otp` | JWT | Set backup TOTP |
+| GET | `/api/auth/login-history` | JWT | Login history |
+
+### TOTP
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/totp/provision` | JWT | Generate TOTP QR |
 
 ### MFA
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/mfa/pending` | Get pending challenge (JWT required) |
-| POST | `/api/mfa/resolve` | Approve/deny challenge (JWT + signature) |
-| GET | `/api/mfa/history` | MFA history (JWT required) |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/mfa/pending` | JWT | Get pending challenge |
+| POST | `/api/mfa/resolve` | JWT | Approve/deny (PQC signature) |
+| POST | `/api/mfa/generate-code` | JWT | Generate one-time code |
+| GET | `/api/mfa/history` | JWT | MFA history |
 
 ### Devices
 
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/devices/register` | JWT | Register device + PQC key + push token |
+
+### Health
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/devices/register` | Register device + PQC key + push token (JWT required) |
+| GET | `/health` | Health check |
 
 ---
 
@@ -72,14 +94,14 @@ Server runs at `http://localhost:4000` (or `PORT` from `.env`).
 
 1. Create a Railway project and connect this repo.
 2. Add variables in **Settings → Variables**:
-   - `JWT_SECRET`
-   - `FIREBASE_PROJECT_ID`
-   - `FIREBASE_CLIENT_EMAIL`
-   - `FIREBASE_PRIVATE_KEY` (single line with `\n` for newlines)
+   - `NODE_ENV` = `production`
+   - `JWT_SECRET` (strong, 32+ chars)
+   - `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`
+   - `CORS_ORIGIN` (optional)
 
 3. Deploy. Railway sets `PORT` automatically.
 
-**FIREBASE_PRIVATE_KEY format** – Use a single string with `\n` (backslash-n) for line breaks, not actual newlines. Example:
+**FIREBASE_PRIVATE_KEY format** – Single string with `\n` for line breaks:
 
 ```
 -----BEGIN PRIVATE KEY-----\nMIIEvQIBADANB...\n-----END PRIVATE KEY-----\n
@@ -87,10 +109,12 @@ Server runs at `http://localhost:4000` (or `PORT` from `.env`).
 
 ---
 
-## Health Check
+## Production Checklist
 
-```bash
-curl https://your-app.up.railway.app/health
-```
+- [ ] `NODE_ENV=production`
+- [ ] Strong `JWT_SECRET` (32+ chars)
+- [ ] Firebase credentials set
+- [ ] `CORS_ORIGIN` set (optional)
 
-Expected: `{"status":"ok","service":"qsafe-backend"}`
+**Health check:** `curl https://your-app.up.railway.app/health`  
+Expected: `{"status":"ok","service":"qsafe-backend","firestore":true}`

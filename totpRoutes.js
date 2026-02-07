@@ -1,9 +1,10 @@
 /**
- * TOTP routes – provision QR for testing; optionally linked to issuer/account.
+ * TOTP routes – provision QR for enrollment (requires auth).
  */
 const express = require('express');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
+const { authMiddleware } = require('./authMiddleware');
 
 const router = express.Router();
 
@@ -18,9 +19,8 @@ function randomBase32(len = 16) {
   return result;
 }
 
-// Simple TOTP provisioning endpoint for QR enrollment testing
-// NOTE: In a real system, you would tie this to an authenticated user/device.
-router.post('/provision', async (req, res) => {
+// TOTP provisioning – requires JWT (logged-in user)
+router.post('/provision', authMiddleware, async (req, res) => {
   try {
     const { issuer, accountName, secret: secretParam } = req.body;
 

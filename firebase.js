@@ -16,9 +16,9 @@ if (!admin.apps.length) {
   }
 
   if (!projectId || !clientEmail || !privateKey) {
-    console.warn(
-      'Firebase environment variables are not fully set. Firestore will not be available.',
-    );
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('Firebase environment variables are not fully set. Firestore will not be available.');
+    }
   } else {
     try {
       app = admin.initializeApp({
@@ -29,7 +29,11 @@ if (!admin.apps.length) {
         }),
       });
     } catch (e) {
-      console.error('Firebase init failed (check FIREBASE_PRIVATE_KEY format):', e.message);
+      if (process.env.NODE_ENV === 'production') {
+        console.error('Firebase init failed');
+      } else {
+        console.error('Firebase init failed (check FIREBASE_PRIVATE_KEY format):', e.message);
+      }
     }
   }
 }

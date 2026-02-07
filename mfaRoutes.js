@@ -2,7 +2,6 @@
  * MFA routes – create challenge, approve/deny with PQC signature, push notifications.
  */
 const express = require('express');
-const { v4: uuidv4 } = require('uuid');
 const { db } = require('./firebase');
 const { Expo } = require('expo-server-sdk');
 const { authMiddleware } = require('./authMiddleware');
@@ -16,86 +15,8 @@ const router = express.Router();
 const MFA_CHALLENGES_COLLECTION = 'mfaChallenges';
 const expo = new Expo();
 
-// Create an MFA challenge and send push notification
-router.post('/challenge', async (req, res) => {
-  try {
-    if (!db) {
-      return res
-        .status(500)
-        .json({ message: 'Firestore is not configured on the server' });
-    }
-
-    const { uid, context } = req.body; // context: { ip, userAgent, etc }
-
-    if (!uid) {
-      return res.status(400).json({ message: 'uid is required' });
-    }
-
-    // Find user's devices (polling-based, so pushToken not required)
-    const devicesSnap = await db
-      .collection('devices')
-      .where('uid', '==', uid)
-      .get();
-
-    if (devicesSnap.empty) {
-      return res.status(404).json({
-        message: 'No registered devices found for this user',
-      });
-    }
-
-    const challengeId = uuidv4();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
-
-    // Create challenge document
-    await db.collection(MFA_CHALLENGES_COLLECTION).add({
-      challengeId,
-      uid,
-      status: 'pending', // pending | approved | denied | expired
-      context: context || {},
-      expiresAt: expiresAt.toISOString(),
-      createdAt: new Date().toISOString(),
-    });
-
-    // Send push notifications to all user's devices
-    const messages = [];
-    devicesSnap.docs.forEach((doc) => {
-      const device = doc.data();
-      if (Expo.isExpoPushToken(device.pushToken)) {
-        messages.push({
-          to: device.pushToken,
-          sound: 'default',
-          title: 'QSafe Login Request',
-          body: `Login attempt detected. Tap to approve or deny.`,
-          data: {
-            type: 'mfa_challenge',
-            challengeId,
-            context,
-          },
-        });
-      }
-    });
-
-    if (messages.length > 0) {
-      const chunks = expo.chunkPushNotifications(messages);
-      for (const chunk of chunks) {
-        try {
-          await expo.sendPushNotificationsAsync(chunk);
-        } catch (error) {
-          console.error('Error sending push notification:', error);
-        }
-      }
-    }
-
-    return res.status(201).json({
-      challengeId,
-      message: 'MFA challenge created and push notifications sent',
-      expiresAt: expiresAt.toISOString(),
-    });
-  } catch (err) {
-    console.error('Error in /api/mfa/challenge:', err);
-    return res.status(500).json({ message: 'Failed to create MFA challenge' });
-  }
-});
+// POST /challenge removed – challenges are created internally by authController.login.
+// The old endpoint was unauthenticated and allowed anyone to spam push notifications.
 
 // Get pending challenge for a device (polling endpoint, requires JWT)
 router.get('/pending', authMiddleware, async (req, res) => {
