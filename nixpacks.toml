@@ -1,3 +1,6 @@
-# Use --omit=dev instead of deprecated --production flag (fixes npm warn)
+# Production build: omit devDependencies, set NODE_ENV
+[variables]
+NODE_ENV = "production"
+
 [phases.install]
 cmds = ["npm install --omit=dev"]
