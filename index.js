@@ -16,8 +16,13 @@ app.use(cors());
 app.use(express.json());
 
 // Health check
+const { db } = require('./firebase');
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'qsafe-backend' });
+  res.json({
+    status: 'ok',
+    service: 'qsafe-backend',
+    firestore: !!db,
+  });
 });
 
 // API routes

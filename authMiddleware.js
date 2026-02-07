@@ -4,6 +4,11 @@
 const jwt = require('jsonwebtoken');
 
 function authMiddleware(req, res, next) {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    console.error('[authMiddleware] JWT_SECRET is not set');
+    return res.status(500).json({ message: 'Server misconfiguration' });
+  }
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ message: 'Authorization required' });
@@ -11,7 +16,7 @@ function authMiddleware(req, res, next) {
 
   const token = authHeader.slice(7);
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, secret);
     req.user = { uid: decoded.uid, email: decoded.email };
     next();
   } catch (err) {

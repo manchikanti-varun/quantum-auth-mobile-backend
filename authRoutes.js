@@ -2,14 +2,13 @@
  * Auth routes – /api/auth (register, login, profile, backup OTP).
  */
 const express = require('express');
-const { register, login, getLoginStatus, loginWithOtp, setupBackupOtp, getLoginHistory, getMe, changePassword, googleAuth } = require('./authController');
+const { register, login, getLoginStatus, loginWithOtp, setupBackupOtp, getLoginHistory, getMe, changePassword } = require('./authController');
 const { authMiddleware } = require('./authMiddleware');
 
 const router = express.Router();
 
 router.post('/register', register);
 router.post('/login', login);
-router.post('/google', googleAuth);
 router.get('/login-status', getLoginStatus);
 router.post('/login-with-otp', loginWithOtp);
 router.post('/setup-backup-otp', authMiddleware, setupBackupOtp);

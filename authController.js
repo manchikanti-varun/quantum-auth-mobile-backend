@@ -72,6 +72,9 @@ function signJwt(payload) {
 
 exports.getMe = async (req, res) => {
   try {
+    if (!db) {
+      return res.status(500).json({ message: 'Firestore is not configured' });
+    }
     const uid = req.user?.uid;
     if (!uid) {
       return res.status(401).json({ message: 'Unauthorized' });
@@ -90,6 +93,9 @@ exports.getMe = async (req, res) => {
 
 exports.changePassword = async (req, res) => {
   try {
+    if (!db) {
+      return res.status(500).json({ message: 'Firestore is not configured' });
+    }
     const uid = req.user?.uid;
     if (!uid) {
       return res.status(401).json({ message: 'Unauthorized' });
@@ -296,7 +302,7 @@ exports.login = async (req, res) => {
       timestamp: new Date().toISOString(),
     };
 
-    await db.collection(MFA_CHALLENGES_COLLECTION).add({
+    const challengeRef = await db.collection(MFA_CHALLENGES_COLLECTION).add({
       challengeId,
       uid,
       status: 'pending',
@@ -535,68 +541,6 @@ exports.getLoginHistory = async (req, res) => {
   } catch (err) {
     console.error('Error in getLoginHistory:', err);
     return res.status(500).json({ message: 'Failed to get login history' });
-  }
-};
-
-// Sign in with Google (Firebase ID token)
-exports.googleAuth = async (req, res) => {
-  try {
-    if (!db || !admin) {
-      return res.status(500).json({ message: 'Firebase not configured' });
-    }
-    const { idToken } = req.body;
-    if (!idToken) {
-      return res.status(400).json({ message: 'idToken is required' });
-    }
-
-    const decoded = await admin.auth().verifyIdToken(idToken);
-    const { uid: firebaseUid, email, name } = decoded;
-
-    if (!email) {
-      return res.status(400).json({ message: 'Email not provided by Google' });
-    }
-
-    const existingSnap = await db
-      .collection(USERS_COLLECTION)
-      .where('email', '==', email.toLowerCase())
-      .limit(1)
-      .get();
-
-    let uid;
-    if (!existingSnap.empty) {
-      uid = existingSnap.docs[0].id;
-    } else {
-      const now = new Date().toISOString();
-      const userDoc = {
-        email: email.toLowerCase(),
-        displayName: name || null,
-        passwordHash: null,
-        totpSecret: randomBase32(20),
-        firebaseUid,
-        createdAt: now,
-        updatedAt: now,
-        authProvider: 'google',
-      };
-      const createdRef = await db.collection(USERS_COLLECTION).add(userDoc);
-      uid = createdRef.id;
-    }
-
-    const userSnap = await db.collection(USERS_COLLECTION).doc(uid).get();
-    const user = userSnap.data();
-    const token = signJwt({ uid, email: user.email });
-
-    return res.status(200).json({
-      uid,
-      email: user.email,
-      displayName: user.displayName,
-      token,
-    });
-  } catch (err) {
-    if (err.code === 'auth/argument-error' || err.code === 'auth/id-token-expired') {
-      return res.status(401).json({ message: 'Invalid or expired token' });
-    }
-    console.error('Error in googleAuth:', err);
-    return res.status(500).json({ message: 'Google sign-in failed' });
   }
 };
 
