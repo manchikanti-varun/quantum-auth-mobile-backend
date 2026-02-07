@@ -1,10 +1,7 @@
 /**
  * QSafe backend – Express server, auth, TOTP, devices, MFA routes.
- * In production, env vars come from the host (Railway); dotenv only for local dev.
  */
-if (process.env.NODE_ENV !== 'production') {
-  require('dotenv').config();
-}
+require('dotenv').config(); // loads .env locally; Railway vars override
 const express = require('express');
 const cors = require('cors');
 const authRoutes = require('./authRoutes');
@@ -36,5 +33,8 @@ app.use('/api/mfa', mfaRoutes);
 
 app.listen(PORT, () => {
   console.log(`QSafe backend listening on port ${PORT}`);
+}).on('error', (err) => {
+  console.error('Server failed to start:', err.message);
+  process.exit(1);
 });
 

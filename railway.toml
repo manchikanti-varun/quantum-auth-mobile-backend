@@ -1,10 +1,3 @@
 # Railway production config
-[build]
-builder = "NIXPACKS"
-
 [deploy]
-# Run node directly - bypass npm to avoid config warnings
 startCommand = "node index.js"
-# Ensure production
-healthcheckPath = "/health"
-healthcheckTimeout = 30
