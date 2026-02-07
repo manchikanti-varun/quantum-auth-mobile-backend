@@ -1,6 +1,4 @@
-# Production build: omit devDependencies, set NODE_ENV
-[variables]
-NODE_ENV = "production"
-
+# Production build: omit devDependencies
+# Set NODE_ENV=production in Railway Variables dashboard
 [phases.install]
 cmds = ["npm install --omit=dev"]
