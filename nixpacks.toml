@@ -1,0 +1,3 @@
+# Use --omit=dev instead of deprecated --production flag (fixes npm warn)
+[phases.install]
+cmds = ["npm install --omit=dev"]
