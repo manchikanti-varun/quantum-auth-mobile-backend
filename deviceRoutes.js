@@ -1,3 +1,9 @@
+/**
+ * Device routes – register device, PQC public key; list devices; delete.
+ */
+/**
+ * Device routes – register device, PQC public key; list devices; delete.
+ */
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('./firebase');

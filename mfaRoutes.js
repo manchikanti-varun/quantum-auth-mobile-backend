@@ -1,3 +1,9 @@
+/**
+ * MFA routes – create challenge, approve/deny with PQC signature, push notifications.
+ */
+/**
+ * MFA routes – create challenge, approve/deny with PQC signature, push notifications.
+ */
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('./firebase');

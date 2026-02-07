@@ -1,3 +1,9 @@
+/**
+ * Auth routes – /api/auth (register, login, profile, backup OTP).
+ */
+/**
+ * Auth routes – /api/auth (register, login, profile, backup OTP).
+ */
 const express = require('express');
 const { register, login, getLoginStatus, loginWithOtp, setupBackupOtp, getLoginHistory, getMe, changePassword } = require('./authController');
 const { authMiddleware } = require('./authMiddleware');

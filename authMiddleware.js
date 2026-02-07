@@ -1,3 +1,9 @@
+/**
+ * Auth middleware – verify JWT; attach req.user (uid, email).
+ */
+/**
+ * Auth middleware – verify JWT; attach req.user (uid, email).
+ */
 const jwt = require('jsonwebtoken');
 
 function authMiddleware(req, res, next) {

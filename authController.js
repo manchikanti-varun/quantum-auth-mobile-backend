@@ -1,3 +1,9 @@
+/**
+ * Auth controller – register, login, backup OTP, login history, change password.
+ */
+/**
+ * Auth controller – register, login, backup OTP, login history, change password.
+ */
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
