@@ -186,6 +186,27 @@ exports.login = async (req, res) => {
       });
     }
 
+    // Reuse existing pending challenge for this device (prevents duplicate challenges from rapid taps)
+    const existingSnap = await db
+      .collection(MFA_CHALLENGES_COLLECTION)
+      .where('uid', '==', uid)
+      .where('requestingDeviceId', '==', deviceId)
+      .where('status', '==', 'pending')
+      .limit(1)
+      .get();
+
+    if (!existingSnap.empty) {
+      const existing = existingSnap.docs[0].data();
+      if (new Date(existing.expiresAt) > new Date()) {
+        return res.status(200).json({
+          requiresMfa: true,
+          challengeId: existing.challengeId,
+          expiresAt: existing.expiresAt,
+          message: 'Check your other device to approve or deny this login.',
+        });
+      }
+    }
+
     const challengeId = uuidv4();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
     const context = {
