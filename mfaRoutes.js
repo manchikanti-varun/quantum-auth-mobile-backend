@@ -1,5 +1,6 @@
 /**
- * MFA routes – create challenge, approve/deny with PQC signature, push notifications.
+ * MFA routes. Pending challenges, resolve with PQC signature, generate backup OTP, history.
+ * @module mfaRoutes
  */
 const express = require('express');
 const { db } = require('./firebase');
@@ -15,10 +16,7 @@ const router = express.Router();
 const MFA_CHALLENGES_COLLECTION = 'mfaChallenges';
 const expo = new Expo();
 
-// POST /challenge removed – challenges are created internally by authController.login.
-// The old endpoint was unauthenticated and allowed anyone to spam push notifications.
-
-// Get pending challenge for a device (polling endpoint, requires JWT)
+router.get('/pending', authMiddleware, async (req, res) => {
 router.get('/pending', authMiddleware, async (req, res) => {
   try {
     if (!db) {
@@ -64,16 +62,11 @@ router.get('/pending', authMiddleware, async (req, res) => {
     }
 
     const challenge = challengeSnap.docs[0].data();
-    if (challenge.challengeId) {
-      console.log('[MFA] Pending sent to deviceId=%s (requestingDeviceId=%s)', deviceId, challenge.requestingDeviceId);
-    }
 
-    // Don't return challenge to the requesting device (they're waiting for approval, not approving)
     if (challenge.requestingDeviceId === deviceId) {
       return res.status(200).json({ challenge: null });
     }
 
-    // Only device 1 (first device by createdAt) receives the poll – not device 2, 3, etc.
     const allDevicesSnap = await db
       .collection('devices')
       .where('uid', '==', uid)
@@ -94,12 +87,11 @@ router.get('/pending', authMiddleware, async (req, res) => {
 
     return res.status(200).json({ challenge });
   } catch (err) {
-    console.error('Error in /api/mfa/pending:', err);
     return res.status(500).json({ message: 'Failed to check pending challenges' });
   }
 });
 
-// Resolve an MFA challenge (approve/deny, requires JWT)
+router.post('/resolve', authMiddleware, async (req, res) => {
 router.post('/resolve', authMiddleware, async (req, res) => {
   try {
     if (!db) {
@@ -120,7 +112,6 @@ router.post('/resolve', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'decision must be approved or denied' });
     }
 
-    // Find challenge
     const challengeSnap = await db
       .collection(MFA_CHALLENGES_COLLECTION)
       .where('challengeId', '==', challengeId)
@@ -140,13 +131,11 @@ router.post('/resolve', authMiddleware, async (req, res) => {
       });
     }
 
-    // Check expiration
     if (new Date(challenge.expiresAt) < new Date()) {
       await challengeDoc.ref.update({ status: 'expired' });
       return res.status(400).json({ message: 'Challenge has expired' });
     }
 
-    // Verify device belongs to authenticated user and challenge is for that user
     if (challenge.uid !== req.user.uid) {
       return res.status(403).json({ message: 'Challenge does not belong to you' });
     }
@@ -164,13 +153,10 @@ router.post('/resolve', authMiddleware, async (req, res) => {
       deviceDoc = deviceSnap.docs[0].data();
     }
 
-    // Validate signature format: hex string
-    // Mock-Dilithium: 64 chars (SHA256); Dilithium2: ~2420 bytes = 4840 hex chars
     if (!/^[a-fA-F0-9]+$/.test(signature) || signature.length < 64) {
       return res.status(400).json({ message: 'Invalid signature format' });
     }
 
-    // PQC signature verification
     if (deviceDoc?.pqcAlgorithm === 'Dilithium2' && deviceDoc?.pqcPublicKey) {
       try {
         const level = DilithiumLevel.get(2);
@@ -183,17 +169,14 @@ router.post('/resolve', authMiddleware, async (req, res) => {
           return res.status(400).json({ message: 'Invalid PQC signature' });
         }
       } catch (err) {
-        console.error('PQC verification error:', err);
         return res.status(400).json({ message: 'Signature verification failed' });
       }
     } else if (deviceDoc?.pqcAlgorithm === 'Mock-Dilithium') {
-      // Legacy mock: trust JWT + device ownership; signature stored for audit
     } else if (deviceId && (!deviceDoc?.pqcPublicKey || !deviceDoc?.pqcAlgorithm)) {
       return res.status(400).json({
         message: 'Device missing PQC keys. Please log in again to re-register.',
       });
     } else if (signature.length > 1000 && !deviceDoc?.pqcPublicKey) {
-      // Dilithium2-style signature without device context - cannot verify
       return res.status(400).json({
         message: 'deviceId required for PQC signature verification',
       });
@@ -221,12 +204,10 @@ router.post('/resolve', authMiddleware, async (req, res) => {
       message: `Challenge ${decision}`,
     });
   } catch (err) {
-    console.error('Error in /api/mfa/resolve:', err);
     return res.status(500).json({ message: 'Failed to resolve MFA challenge' });
   }
 });
 
-// Generate one-time code for Device 2 to enter (Device 1 flow; requires JWT)
 router.post('/generate-code', authMiddleware, async (req, res) => {
   try {
     if (!db) {
@@ -268,12 +249,11 @@ router.post('/generate-code', authMiddleware, async (req, res) => {
 
     return res.status(200).json({ code, expiresIn: 300 });
   } catch (err) {
-    console.error('Error in generate-code:', err);
     return res.status(500).json({ message: 'Failed to generate code' });
   }
 });
 
-// Get MFA history (requires JWT)
+
 router.get('/history', authMiddleware, async (req, res) => {
   try {
     if (!db) {
@@ -293,7 +273,6 @@ router.get('/history', authMiddleware, async (req, res) => {
     const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     return res.status(200).json({ history: items });
   } catch (err) {
-    console.error('Error in /api/mfa/history:', err);
     return res.status(500).json({ message: 'Failed to get MFA history' });
   }
 });

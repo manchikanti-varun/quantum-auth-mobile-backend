@@ -1,5 +1,6 @@
 /**
- * Device routes – register device, PQC public key; list devices; delete.
+ * Device routes. Register device with PQC key, list devices, revoke trust.
+ * @module deviceRoutes
  */
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
@@ -9,7 +10,6 @@ const { authMiddleware } = require('./authMiddleware');
 const router = express.Router();
 const DEVICES_COLLECTION = 'devices';
 
-// List user's devices (requires JWT)
 router.get('/', authMiddleware, async (req, res) => {
   try {
     if (!db) {
@@ -25,7 +25,13 @@ router.get('/', authMiddleware, async (req, res) => {
     const sorted = snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-    const devices = sorted.map((d, i) => ({
+    const seen = new Set();
+    const unique = sorted.filter((d) => {
+      if (seen.has(d.deviceId)) return false;
+      seen.add(d.deviceId);
+      return true;
+    });
+    const devices = unique.map((d, i) => ({
       deviceId: d.deviceId,
       platform: d.platform || null,
       createdAt: d.createdAt,
@@ -35,12 +41,10 @@ router.get('/', authMiddleware, async (req, res) => {
     }));
     return res.status(200).json({ devices });
   } catch (err) {
-    console.error('Error in GET /api/devices:', err);
     return res.status(500).json({ message: 'Failed to list devices' });
   }
 });
 
-// Register or update a device's PQC public key for a user (requires JWT)
 router.post('/register', authMiddleware, async (req, res) => {
   try {
     if (!db) {
@@ -53,22 +57,37 @@ router.post('/register', authMiddleware, async (req, res) => {
     const { deviceId, pqcPublicKey, pqcAlgorithm, platform, pushToken, rememberDevice } =
       req.body;
 
+    if (!deviceId || typeof deviceId !== 'string' || !deviceId.trim()) {
+      return res.status(400).json({
+        message: 'deviceId is required',
+      });
+    }
+    const finalDeviceId = String(deviceId).trim();
+
     if (!pqcPublicKey || !pqcAlgorithm) {
       return res.status(400).json({
         message: 'pqcPublicKey and pqcAlgorithm are required',
       });
     }
-
-    const finalDeviceId = deviceId || uuidv4();
     const now = new Date().toISOString();
 
     const trustedUntil = rememberDevice
       ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
       : null;
 
-    // Use deterministic doc ID (uid_deviceId) to prevent duplicates from concurrent register calls
     const docId = `${uid}_${finalDeviceId}`;
     const docRef = db.collection(DEVICES_COLLECTION).doc(docId);
+
+    const dupesSnap = await db
+      .collection(DEVICES_COLLECTION)
+      .where('uid', '==', uid)
+      .where('deviceId', '==', finalDeviceId)
+      .get();
+    const toDelete = dupesSnap.docs.filter((d) => d.id !== docId);
+    for (const d of toDelete) {
+      await d.ref.delete();
+    }
+
     const existing = await docRef.get();
 
     const payload = {
@@ -96,12 +115,10 @@ router.post('/register', authMiddleware, async (req, res) => {
       message: 'Device registered successfully',
     });
   } catch (err) {
-    console.error('Error in /api/devices/register:', err);
     return res.status(500).json({ message: 'Failed to register device' });
   }
 });
 
-// Revoke this device's trust – next login will require MFA approval on another device
 router.post('/revoke', authMiddleware, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ message: 'Firestore is not configured' });
@@ -131,7 +148,6 @@ router.post('/revoke', authMiddleware, async (req, res) => {
     }
     return res.status(200).json({ message: 'Device trust revoked' });
   } catch (err) {
-    console.error('Error in /api/devices/revoke:', err);
     return res.status(500).json({ message: 'Failed to revoke' });
   }
 });

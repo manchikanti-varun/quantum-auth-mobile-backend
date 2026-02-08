@@ -1,5 +1,6 @@
 /**
- * Auth middleware – verify JWT; attach req.user (uid, email).
+ * Auth middleware. Verifies JWT and attaches req.user (uid, email).
+ * @module authMiddleware
  */
 const jwt = require('jsonwebtoken');
 
@@ -13,8 +14,6 @@ function isWeakSecret(s) {
 function authMiddleware(req, res, next) {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') return res.status(500).json({ message: 'Server misconfiguration' });
-    console.error('[authMiddleware] JWT_SECRET is not set');
     return res.status(500).json({ message: 'Server misconfiguration' });
   }
   if (process.env.NODE_ENV === 'production' && isWeakSecret(secret)) {

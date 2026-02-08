@@ -1,6 +1,6 @@
 /**
- * Remove duplicate device records (same uid+deviceId).
- * Keeps the most recent doc per uid+deviceId, deletes the rest.
+ * Removes duplicate device records (same uid+deviceId). Keeps most recent per key.
+ * @module services/deviceCleanup
  */
 const { db } = require('../firebase');
 
@@ -27,15 +27,9 @@ async function cleanupDuplicateDevices() {
     for (let i = 1; i < group.length; i++) {
       await group[i].ref.delete();
       deleted++;
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`[DeviceCleanup] Deleted duplicate: ${key} (doc ${group[i]._id})`);
-      }
     }
   }
 
-  if (deleted > 0) {
-    console.log(`[DeviceCleanup] Removed ${deleted} duplicate device(s)`);
-  }
   return { deleted };
 }
 

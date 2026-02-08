@@ -1,5 +1,6 @@
 /**
- * Auth validation – email, password, display name.
+ * Auth validation. Email, password, display name, security code.
+ * @module validation
  */
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -59,6 +60,17 @@ function validateRegister({ email, password, displayName }) {
   return errors;
 }
 
+function validateSecurityCode(code) {
+  if (!code || typeof code !== 'string') {
+    return { valid: false, message: 'Security code is required' };
+  }
+  const c = String(code).replace(/\s/g, '');
+  if (!/^\d{4,6}$/.test(c)) {
+    return { valid: false, message: 'Security code must be 4–6 digits' };
+  }
+  return { valid: true, value: c };
+}
+
 function validateLogin({ email, password }) {
   const errors = [];
   if (!email || !email.trim()) {
@@ -77,6 +89,7 @@ function validateLogin({ email, password }) {
 module.exports = {
   isValidEmail,
   validatePassword,
+  validateSecurityCode,
   validateRegister,
   validateLogin,
   EMAIL_REGEX,

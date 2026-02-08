@@ -1,7 +1,9 @@
 /**
- * QSafe backend – Express server, auth, TOTP, devices, MFA routes.
+ * QSafe Backend – Express server. Auth, TOTP, devices, MFA routes.
+ * @module index
  */
-require('dotenv').config({ silent: true, override: true }); // .env overrides system env for local dev
+
+require('dotenv').config({ silent: true, override: true });
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -13,7 +15,6 @@ const mfaRoutes = require('./mfaRoutes');
 
 const isProd = process.env.NODE_ENV === 'production';
 
-// Fail fast in production if critical env vars are missing
 if (isProd) {
   const required = ['JWT_SECRET', 'FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'];
   const missing = required.filter((k) => !process.env[k]?.trim());
@@ -37,7 +38,6 @@ const corsOrigin = process.env.CORS_ORIGIN;
 app.use(cors(corsOrigin ? { origin: corsOrigin.split(',').map((o) => o.trim()) } : {}));
 app.use(express.json());
 
-// Rate limit auth endpoints (brute force protection)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
@@ -46,7 +46,6 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Polling for MFA approval needs higher limit (Device 2 polls every 150ms)
 const authPollLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 6000, // ~400/min for 150ms poll
@@ -55,17 +54,15 @@ const authPollLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Health check
 const { db } = require('./firebase');
 const { cleanupDuplicateDevices } = require('./services/deviceCleanup');
 
-// Cleanup duplicate devices: on startup, then every 24 hours
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 function scheduleDeviceCleanup() {
   if (!db) return;
-  cleanupDuplicateDevices().catch((e) => console.error('[DeviceCleanup]', e?.message || e));
+  cleanupDuplicateDevices().catch(() => {});
   setInterval(() => {
-    cleanupDuplicateDevices().catch((e) => console.error('[DeviceCleanup]', e?.message || e));
+    cleanupDuplicateDevices().catch(() => {});
   }, TWENTY_FOUR_HOURS_MS);
 }
 app.get('/health', (req, res) => {
@@ -76,7 +73,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API routes – auth: strict limit for login/register, higher limit for login-status (MFA poll)
 app.use('/api/auth', (req, res, next) => {
   if (req.originalUrl.includes('login-status') && req.method === 'GET') {
     return authPollLimiter(req, res, next);
@@ -88,10 +84,8 @@ app.use('/api/devices', deviceRoutes);
 app.use('/api/mfa', mfaRoutes);
 
 app.listen(PORT, () => {
-  console.log(`QSafe backend listening on port ${PORT}`);
   scheduleDeviceCleanup();
 }).on('error', (err) => {
-  console.error('Server failed to start:', err.message);
   process.exit(1);
 });
 

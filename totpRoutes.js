@@ -1,5 +1,6 @@
 /**
- * TOTP routes – provision QR for enrollment (requires auth).
+ * TOTP routes. Provision QR for TOTP enrollment. Requires JWT.
+ * @module totpRoutes
  */
 const express = require('express');
 const QRCode = require('qrcode');
@@ -8,7 +9,6 @@ const { authMiddleware } = require('./authMiddleware');
 
 const router = express.Router();
 
-// Base32 encoding for TOTP secrets
 function randomBase32(len = 16) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   const bytes = crypto.randomBytes(len);
@@ -19,7 +19,6 @@ function randomBase32(len = 16) {
   return result;
 }
 
-// TOTP provisioning – requires JWT (logged-in user)
 router.post('/provision', authMiddleware, async (req, res) => {
   try {
     const { issuer, accountName, secret: secretParam } = req.body;
@@ -30,7 +29,6 @@ router.post('/provision', authMiddleware, async (req, res) => {
         .json({ message: 'issuer and accountName are required' });
     }
 
-    // Auto-generate unique secret if not provided (each account gets different OTP)
     const secret = secretParam || randomBase32();
 
     const label = `${issuer}:${accountName}`;
@@ -47,7 +45,6 @@ router.post('/provision', authMiddleware, async (req, res) => {
       qrDataUrl,
     });
   } catch (err) {
-    console.error('Error in /api/totp/provision:', err);
     return res.status(500).json({ message: 'Failed to generate TOTP QR' });
   }
 });

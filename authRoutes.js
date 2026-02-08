@@ -1,8 +1,9 @@
 /**
- * Auth routes – /api/auth (register, login, profile, backup OTP).
+ * Auth routes. /api/auth: register, login, profile, MFA, password reset.
+ * @module authRoutes
  */
 const express = require('express');
-const { register, login, getLoginStatus, loginWithOtp, setupBackupOtp, getLoginHistory, deleteLoginHistoryEntry, getMe, updatePreferences, changePassword, forgotPassword, requestPasswordResetCode } = require('./authController');
+const { register, login, getLoginStatus, loginWithOtp, setupBackupOtp, getLoginHistory, deleteLoginHistoryEntry, getMe, updatePreferences, changePassword, forgotPassword, forgotPasswordWithSecurityCode, requestPasswordResetCode, checkRecoveryOptions } = require('./authController');
 const { authMiddleware } = require('./authMiddleware');
 
 const router = express.Router();
@@ -18,6 +19,8 @@ router.get('/me', authMiddleware, getMe);
 router.patch('/preferences', authMiddleware, updatePreferences);
 router.post('/change-password', authMiddleware, changePassword);
 router.post('/forgot-password', forgotPassword);
+router.get('/check-recovery-options', checkRecoveryOptions);
+router.post('/forgot-password-security-code', forgotPasswordWithSecurityCode);
 router.post('/request-password-reset-code', authMiddleware, requestPasswordResetCode);
 
 module.exports = router;

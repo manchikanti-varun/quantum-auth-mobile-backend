@@ -1,8 +1,9 @@
 /**
- * Auth controller – register, login, backup OTP, login history, change password.
+ * Auth controller. Register, login, MFA, backup OTP, password reset, preferences.
+ * @module authController
  */
 const bcrypt = require('bcrypt');
-const { validateRegister, validateLogin, validatePassword } = require('./validation');
+const { validateRegister, validateLogin, validatePassword, validateSecurityCode } = require('./validation');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
@@ -15,7 +16,6 @@ const PASSWORD_RESET_CODES_COLLECTION = 'passwordResetCodes';
 const SALT_ROUNDS = 10;
 const expo = new Expo();
 
-// Base32 (RFC 4648) decode for TOTP secret
 function base32Decode(str) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   const clean = String(str).toUpperCase().replace(/\s/g, '').replace(/=+$/, '');
@@ -43,7 +43,6 @@ function randomBase32(len = 20) {
   return s;
 }
 
-// Verify 6-digit TOTP code (RFC 6238, 30s step); allow ±1 window for clock skew
 function verifyTotp(secretBase32, code) {
   const secret = base32Decode(secretBase32);
   const counter = Math.floor(Date.now() / 1000 / 30);
@@ -94,7 +93,6 @@ exports.getMe = async (req, res) => {
       preferences: { allowMultipleDevices },
     });
   } catch (err) {
-    console.error('Error in getMe:', err);
     return res.status(500).json({ message: 'Failed to fetch profile' });
   }
 };
@@ -127,7 +125,6 @@ exports.updatePreferences = async (req, res) => {
       preferences: { allowMultipleDevices },
     });
   } catch (err) {
-    console.error('Error in updatePreferences:', err);
     return res.status(500).json({ message: 'Failed to update preferences' });
   }
 };
@@ -165,8 +162,120 @@ exports.changePassword = async (req, res) => {
     });
     return res.status(200).json({ message: 'Password updated successfully' });
   } catch (err) {
-    console.error('Error in changePassword:', err);
     return res.status(500).json({ message: 'Failed to change password' });
+  }
+};
+
+exports.checkRecoveryOptions = async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ message: 'Firestore is not configured' });
+    }
+    const { email } = req.query;
+    const trimmedEmail = String(email || '').trim().toLowerCase();
+    if (!trimmedEmail) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+    const userSnap = await db
+      .collection(USERS_COLLECTION)
+      .where('email', '==', trimmedEmail)
+      .limit(1)
+      .get();
+    if (userSnap.empty) {
+      return res.status(404).json({ message: 'Email not found' });
+    }
+    const user = userSnap.docs[0].data();
+    const uid = userSnap.docs[0].id;
+    const devicesSnap = await db.collection('devices').where('uid', '==', uid).get();
+    const deviceCount = devicesSnap.size;
+    const hasSecurityCode = !!user.securityCodeHash;
+    const lockedUntil = user.securityRecoveryLockedUntil || null;
+    const now = new Date();
+    const isLocked = lockedUntil && new Date(lockedUntil) > now;
+    const canUseSecurityCode = hasSecurityCode && !isLocked;
+    return res.status(200).json({
+      canUseSecurityCode,
+      lockedUntil: isLocked ? lockedUntil : null,
+      deviceCount,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Failed to check recovery options' });
+  }
+};
+
+exports.forgotPasswordWithSecurityCode = async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ message: 'Firestore is not configured' });
+    }
+    const { email, securityCode, newPassword } = req.body;
+    if (!email || !securityCode || !newPassword) {
+      return res.status(400).json({ message: 'Email, security code, and new password are required' });
+    }
+    const pwResult = validatePassword(newPassword);
+    if (!pwResult.valid) {
+      return res.status(400).json({ message: pwResult.message });
+    }
+    const scResult = validateSecurityCode(securityCode);
+    if (!scResult.valid) {
+      return res.status(400).json({ message: scResult.message });
+    }
+    const trimmedEmail = String(email).trim().toLowerCase();
+    const userSnap = await db
+      .collection(USERS_COLLECTION)
+      .where('email', '==', trimmedEmail)
+      .limit(1)
+      .get();
+    if (userSnap.empty) {
+      return res.status(404).json({ message: 'Email not found' });
+    }
+    const doc = userSnap.docs[0];
+    const user = doc.data();
+    const uid = doc.id;
+    if (!user.securityCodeHash) {
+      return res.status(400).json({ message: 'Security code recovery is not set up for this account.' });
+    }
+    const lockedUntil = user.securityRecoveryLockedUntil;
+    if (lockedUntil && new Date(lockedUntil) > new Date()) {
+      return res.status(403).json({
+        message: `Account locked. Try again after ${new Date(lockedUntil).toLocaleString()}`,
+        lockedUntil,
+      });
+    }
+    const codeValid = await bcrypt.compare(scResult.value, user.securityCodeHash);
+    if (!codeValid) {
+      const attempts = (user.securityRecoveryAttempts || 0) + 1;
+      const LOCK_HOURS = 24;
+      const updates = {
+        securityRecoveryAttempts: attempts,
+        updatedAt: new Date().toISOString(),
+      };
+      if (attempts >= 3) {
+        updates.securityRecoveryLockedUntil = new Date(Date.now() + LOCK_HOURS * 60 * 60 * 1000).toISOString();
+        updates.securityRecoveryAttempts = 0;
+      }
+      await doc.ref.update(updates);
+      const remaining = 3 - attempts;
+      if (attempts >= 3) {
+        return res.status(403).json({
+          message: `Too many wrong attempts. Account locked for ${LOCK_HOURS} hours.`,
+          lockedUntil: updates.securityRecoveryLockedUntil,
+        });
+      }
+      return res.status(401).json({
+        message: `Wrong security code. ${remaining} attempt${remaining === 1 ? '' : 's'} left before account lockout.`,
+      });
+    }
+    const passwordHash = await bcrypt.hash(newPassword.trim(), SALT_ROUNDS);
+    await doc.ref.update({
+      passwordHash,
+      securityRecoveryAttempts: 0,
+      securityRecoveryLockedUntil: null,
+      updatedAt: new Date().toISOString(),
+    });
+    return res.status(200).json({ message: 'Password updated. You can now sign in.' });
+  } catch (err) {
+    return res.status(500).json({ message: 'Failed to reset password' });
   }
 };
 
@@ -231,7 +340,6 @@ exports.forgotPassword = async (req, res) => {
     });
     return res.status(200).json({ message: 'Password updated. You can now sign in.' });
   } catch (err) {
-    console.error('Error in forgotPassword:', err);
     return res.status(500).json({ message: 'Failed to reset password' });
   }
 };
@@ -282,7 +390,6 @@ exports.requestPasswordResetCode = async (req, res) => {
       message: 'Use this code within 10 minutes on the device where you forgot your password.',
     });
   } catch (err) {
-    console.error('Error in requestPasswordResetCode:', err);
     return res.status(500).json({ message: 'Failed to generate reset code' });
   }
 };
@@ -295,11 +402,15 @@ exports.register = async (req, res) => {
         .json({ message: 'Firestore is not configured on the server' });
     }
 
-    const { email, password, displayName } = req.body;
+    const { email, password, displayName, securityCode } = req.body;
 
     const registerErrors = validateRegister({ email, password, displayName });
     if (registerErrors.length > 0) {
       return res.status(400).json({ message: registerErrors[0] });
+    }
+    const scResult = validateSecurityCode(securityCode);
+    if (!scResult.valid) {
+      return res.status(400).json({ message: scResult.message });
     }
 
     const trimmedEmail = String(email).trim().toLowerCase();
@@ -319,6 +430,7 @@ exports.register = async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(password.trim(), SALT_ROUNDS);
+    const securityCodeHash = await bcrypt.hash(scResult.value, SALT_ROUNDS);
     const now = new Date().toISOString();
     const totpSecret = randomBase32(20); // for backup login when other device is offline
 
@@ -326,6 +438,7 @@ exports.register = async (req, res) => {
       email: trimmedEmail,
       displayName: trimmedDisplayName,
       passwordHash,
+      securityCodeHash,
       totpSecret,
       createdAt: now,
       updatedAt: now,
@@ -345,7 +458,6 @@ exports.register = async (req, res) => {
       totpSecret, // show once: add to authenticator for backup login when other device is offline
     });
   } catch (err) {
-    console.error('Error in register:', err);
     return res.status(500).json({ message: 'Registration failed' });
   }
 };
@@ -473,7 +585,6 @@ exports.login = async (req, res) => {
       expiresAt: expiresAt.toISOString(),
       createdAt: new Date().toISOString(),
     });
-    console.log('[MFA] Challenge created for uid=%s, requestingDeviceId=%s', uid, deviceId);
 
     // Push only to device 1 (first device by createdAt) – not to device 2, 3, etc.
     const sortedDevices = devicesSnap.docs
@@ -497,7 +608,6 @@ exports.login = async (req, res) => {
         try {
           await expo.sendPushNotificationsAsync(chunk);
         } catch (error) {
-          console.error('Error sending push:', error);
         }
       }
     }
@@ -509,7 +619,6 @@ exports.login = async (req, res) => {
       message: 'Check your other device to approve or deny this login.',
     });
   } catch (err) {
-    console.error('Error in login:', err);
     return res.status(500).json({ message: 'Login failed' });
   }
 };
@@ -599,7 +708,6 @@ exports.getLoginStatus = async (req, res) => {
 
     return res.status(200).json({ status: challenge.status });
   } catch (err) {
-    console.error('Error in getLoginStatus:', err);
     return res.status(500).json({ message: 'Failed to get login status' });
   }
 };
@@ -709,7 +817,6 @@ exports.loginWithOtp = async (req, res) => {
       displayName: user.displayName,
     });
   } catch (err) {
-    console.error('Error in loginWithOtp:', err);
     return res.status(500).json({ message: 'Failed to complete login' });
   }
 };
@@ -744,7 +851,6 @@ exports.getLoginHistory = async (req, res) => {
     const firstDeviceId = sortedDevices[0]?.data().deviceId ?? null;
     return res.status(200).json({ history: items, firstDeviceId });
   } catch (err) {
-    console.error('Error in getLoginHistory:', err);
     return res.status(500).json({ message: 'Failed to get login history' });
   }
 };
@@ -775,7 +881,6 @@ exports.deleteLoginHistoryEntry = async (req, res) => {
     });
     return res.status(200).json({ message: 'Deleted' });
   } catch (err) {
-    console.error('Error in deleteLoginHistoryEntry:', err);
     return res.status(500).json({ message: 'Failed to delete' });
   }
 };
@@ -805,7 +910,6 @@ exports.setupBackupOtp = async (req, res) => {
       message: 'Add this to your authenticator app for backup login when your other device is offline.',
     });
   } catch (err) {
-    console.error('Error in setupBackupOtp:', err);
     return res.status(500).json({ message: 'Failed to set up backup OTP' });
   }
 };

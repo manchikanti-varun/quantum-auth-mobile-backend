@@ -1,5 +1,7 @@
 /**
- * Firebase – Firestore init; handles Railway env (quoted private key).
+ * Firebase Admin SDK initialization. Firestore for users, devices, MFA challenges.
+ * Handles Railway env (quoted FIREBASE_PRIVATE_KEY with escaped newlines).
+ * @module firebase
  */
 const admin = require('firebase-admin');
 
@@ -10,16 +12,11 @@ if (!admin.apps.length) {
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   let privateKey = process.env.FIREBASE_PRIVATE_KEY;
   if (privateKey) {
-    // Railway: value may be wrapped in quotes; use \n for newlines
     privateKey = privateKey.trim().replace(/^["']+|["']+$/g, '');
     privateKey = privateKey.replace(/\\n/g, '\n');
   }
 
-  if (!projectId || !clientEmail || !privateKey) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('Firebase environment variables are not fully set. Firestore will not be available.');
-    }
-  } else {
+  if (projectId && clientEmail && privateKey) {
     try {
       app = admin.initializeApp({
         credential: admin.credential.cert({
@@ -28,13 +25,7 @@ if (!admin.apps.length) {
           privateKey,
         }),
       });
-    } catch (e) {
-      if (process.env.NODE_ENV === 'production') {
-        console.error('Firebase init failed');
-      } else {
-        console.error('Firebase init failed (check FIREBASE_PRIVATE_KEY format):', e.message);
-      }
-    }
+    } catch (e) {}
   }
 }
 

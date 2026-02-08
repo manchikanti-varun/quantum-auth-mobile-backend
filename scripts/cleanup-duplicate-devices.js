@@ -1,5 +1,5 @@
 /**
- * Cleanup duplicate device records (CLI).
+ * CLI script to remove duplicate device records.
  * Run: node scripts/cleanup-duplicate-devices.js
  */
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
