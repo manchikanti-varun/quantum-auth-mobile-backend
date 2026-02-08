@@ -17,7 +17,6 @@ const MFA_CHALLENGES_COLLECTION = 'mfaChallenges';
 const expo = new Expo();
 
 router.get('/pending', authMiddleware, async (req, res) => {
-router.get('/pending', authMiddleware, async (req, res) => {
   try {
     if (!db) {
       return res
@@ -91,7 +90,6 @@ router.get('/pending', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/resolve', authMiddleware, async (req, res) => {
 router.post('/resolve', authMiddleware, async (req, res) => {
   try {
     if (!db) {
