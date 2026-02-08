@@ -79,5 +79,30 @@ router.post('/register', authMiddleware, async (req, res) => {
   }
 });
 
+// Revoke this device's trust – next login will require MFA approval on another device
+router.post('/revoke', authMiddleware, async (req, res) => {
+  try {
+    if (!db) return res.status(500).json({ message: 'Firestore is not configured' });
+    const uid = req.user.uid;
+    const { deviceId } = req.body;
+    if (!deviceId) return res.status(400).json({ message: 'deviceId required' });
+
+    const snap = await db
+      .collection(DEVICES_COLLECTION)
+      .where('uid', '==', uid)
+      .where('deviceId', '==', deviceId)
+      .limit(1)
+      .get();
+
+    if (!snap.empty) {
+      await snap.docs[0].ref.update({ trustedUntil: null, updatedAt: new Date().toISOString() });
+    }
+    return res.status(200).json({ message: 'Device trust revoked' });
+  } catch (err) {
+    console.error('Error in /api/devices/revoke:', err);
+    return res.status(500).json({ message: 'Failed to revoke' });
+  }
+});
+
 module.exports = router;
 

@@ -307,7 +307,7 @@ exports.login = async (req, res) => {
       timestamp: new Date().toISOString(),
     };
 
-    const challengeRef = await db.collection(MFA_CHALLENGES_COLLECTION).add({
+    await db.collection(MFA_CHALLENGES_COLLECTION).add({
       challengeId,
       uid,
       status: 'pending',
@@ -316,6 +316,7 @@ exports.login = async (req, res) => {
       expiresAt: expiresAt.toISOString(),
       createdAt: new Date().toISOString(),
     });
+    console.log('[MFA] Challenge created for uid=%s, requestingDeviceId=%s', uid, deviceId);
 
     // Push to other devices (so user sees approve/deny quickly)
     const messages = [];
@@ -536,10 +537,15 @@ exports.getLoginHistory = async (req, res) => {
     }
     const [historySnap, devicesSnap] = await Promise.all([
       db.collection(USERS_COLLECTION).doc(uid).collection('loginHistory').orderBy('timestamp', 'desc').limit(50).get(),
-      db.collection('devices').where('uid', '==', uid).orderBy('createdAt', 'asc').limit(1).get(),
+      db.collection('devices').where('uid', '==', uid).get(),
     ]);
     const items = historySnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    const firstDeviceId = !devicesSnap.empty ? devicesSnap.docs[0].data().deviceId : null;
+    const sortedDevices = devicesSnap.docs.sort((a, b) => {
+      const aT = a.data().createdAt || '';
+      const bT = b.data().createdAt || '';
+      return aT.localeCompare(bT);
+    });
+    const firstDeviceId = sortedDevices[0]?.data().deviceId ?? null;
     return res.status(200).json({ history: items, firstDeviceId });
   } catch (err) {
     console.error('Error in getLoginHistory:', err);
@@ -560,8 +566,9 @@ exports.deleteLoginHistoryEntry = async (req, res) => {
     if (!doc.exists) return res.status(404).json({ message: 'Entry not found' });
     const entryDeviceId = doc.data().deviceId;
     if (entryDeviceId === currentDeviceId) return res.status(403).json({ message: 'Cannot delete your own login' });
-    const firstSnap = await db.collection('devices').where('uid', '==', uid).orderBy('createdAt', 'asc').limit(1).get();
-    const firstDeviceId = !firstSnap.empty ? firstSnap.docs[0].data().deviceId : null;
+    const firstSnap = await db.collection('devices').where('uid', '==', uid).get();
+    const sortedFirst = firstSnap.docs.sort((a, b) => (a.data().createdAt || '').localeCompare(b.data().createdAt || ''));
+    const firstDeviceId = sortedFirst[0]?.data().deviceId ?? null;
     if (firstDeviceId && entryDeviceId === firstDeviceId && currentDeviceId !== firstDeviceId) {
       return res.status(403).json({ message: 'Cannot delete first device login' });
     }

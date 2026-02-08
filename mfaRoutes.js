@@ -59,6 +59,14 @@ router.get('/pending', authMiddleware, async (req, res) => {
     }
 
     const challenge = challengeSnap.docs[0].data();
+    if (challenge.challengeId) {
+      console.log('[MFA] Pending sent to deviceId=%s (requestingDeviceId=%s)', deviceId, challenge.requestingDeviceId);
+    }
+
+    // Don't return challenge to the requesting device (they're waiting for approval, not approving)
+    if (challenge.requestingDeviceId === deviceId) {
+      return res.status(200).json({ challenge: null });
+    }
 
     // Check expiration
     if (new Date(challenge.expiresAt) < new Date()) {
