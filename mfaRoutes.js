@@ -73,6 +73,19 @@ router.get('/pending', authMiddleware, async (req, res) => {
       return res.status(200).json({ challenge: null });
     }
 
+    // Only device 1 (first device by createdAt) receives the poll – not device 2, 3, etc.
+    const allDevicesSnap = await db
+      .collection('devices')
+      .where('uid', '==', uid)
+      .get();
+    const sorted = allDevicesSnap.docs
+      .map((d) => d.data())
+      .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    const firstDeviceId = sorted[0]?.deviceId;
+    if (firstDeviceId !== deviceId) {
+      return res.status(200).json({ challenge: null });
+    }
+
     // Check expiration
     if (new Date(challenge.expiresAt) < new Date()) {
       await challengeSnap.docs[0].ref.update({ status: 'expired' });

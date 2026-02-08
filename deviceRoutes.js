@@ -9,6 +9,37 @@ const { authMiddleware } = require('./authMiddleware');
 const router = express.Router();
 const DEVICES_COLLECTION = 'devices';
 
+// List user's devices (requires JWT)
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    if (!db) {
+      return res
+        .status(500)
+        .json({ message: 'Firestore is not configured on the server' });
+    }
+    const uid = req.user.uid;
+    const snap = await db
+      .collection(DEVICES_COLLECTION)
+      .where('uid', '==', uid)
+      .get();
+    const sorted = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    const devices = sorted.map((d, i) => ({
+      deviceId: d.deviceId,
+      platform: d.platform || null,
+      createdAt: d.createdAt,
+      lastSeenAt: d.lastSeenAt,
+      trustedUntil: d.trustedUntil || null,
+      deviceNumber: i + 1,
+    }));
+    return res.status(200).json({ devices });
+  } catch (err) {
+    console.error('Error in GET /api/devices:', err);
+    return res.status(500).json({ message: 'Failed to list devices' });
+  }
+});
+
 // Register or update a device's PQC public key for a user (requires JWT)
 router.post('/register', authMiddleware, async (req, res) => {
   try {

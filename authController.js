@@ -11,6 +11,7 @@ const { Expo } = require('expo-server-sdk');
 
 const USERS_COLLECTION = 'users';
 const MFA_CHALLENGES_COLLECTION = 'mfaChallenges';
+const PASSWORD_RESET_CODES_COLLECTION = 'passwordResetCodes';
 const SALT_ROUNDS = 10;
 const expo = new Expo();
 
@@ -84,11 +85,50 @@ exports.getMe = async (req, res) => {
     if (!doc.exists) {
       return res.status(404).json({ message: 'User not found' });
     }
-    const { email, displayName } = doc.data();
-    return res.status(200).json({ uid, email: email || '', displayName: displayName || null });
+    const { email, displayName, preferences } = doc.data();
+    const allowMultipleDevices = preferences?.allowMultipleDevices ?? true;
+    return res.status(200).json({
+      uid,
+      email: email || '',
+      displayName: displayName || null,
+      preferences: { allowMultipleDevices },
+    });
   } catch (err) {
     console.error('Error in getMe:', err);
     return res.status(500).json({ message: 'Failed to fetch profile' });
+  }
+};
+
+exports.updatePreferences = async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ message: 'Firestore is not configured' });
+    }
+    const uid = req.user?.uid;
+    if (!uid) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    const { allowMultipleDevices } = req.body;
+    if (typeof allowMultipleDevices !== 'boolean') {
+      return res.status(400).json({ message: 'allowMultipleDevices must be a boolean' });
+    }
+    const docRef = db.collection(USERS_COLLECTION).doc(uid);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const data = doc.data();
+    const prefs = data.preferences || {};
+    await docRef.update({
+      preferences: { ...prefs, allowMultipleDevices },
+      updatedAt: new Date().toISOString(),
+    });
+    return res.status(200).json({
+      preferences: { allowMultipleDevices },
+    });
+  } catch (err) {
+    console.error('Error in updatePreferences:', err);
+    return res.status(500).json({ message: 'Failed to update preferences' });
   }
 };
 
@@ -144,6 +184,10 @@ exports.forgotPassword = async (req, res) => {
       return res.status(400).json({ message: pwResult.message });
     }
     const trimmedEmail = String(email).trim().toLowerCase();
+    const codeStr = String(code).replace(/\s/g, '');
+    if (!/^\d{6}$/.test(codeStr)) {
+      return res.status(400).json({ message: 'Code must be 6 digits' });
+    }
     const userSnap = await db
       .collection(USERS_COLLECTION)
       .where('email', '==', trimmedEmail)
@@ -154,13 +198,30 @@ exports.forgotPassword = async (req, res) => {
     }
     const doc = userSnap.docs[0];
     const user = doc.data();
-    const codeStr = String(code).replace(/\s/g, '');
-    if (!/^\d{6}$/.test(codeStr)) {
-      return res.status(400).json({ message: 'Code must be 6 digits' });
+    let codeValid = false;
+    const uid = doc.id;
+    // 1) Check one-time reset code (from another device)
+    const resetCodesSnap = await db
+      .collection(PASSWORD_RESET_CODES_COLLECTION)
+      .where('uid', '==', uid)
+      .where('code', '==', codeStr)
+      .limit(1)
+      .get();
+    if (!resetCodesSnap.empty) {
+      const resetDoc = resetCodesSnap.docs[0];
+      const resetData = resetDoc.data();
+      if (new Date(resetData.expiresAt) > new Date()) {
+        codeValid = true;
+        await resetDoc.ref.delete();
+      }
     }
-    if (!user.totpSecret || !verifyTotp(user.totpSecret, codeStr)) {
+    // 2) Fallback: backup TOTP from authenticator
+    if (!codeValid && user.totpSecret && verifyTotp(user.totpSecret, codeStr)) {
+      codeValid = true;
+    }
+    if (!codeValid) {
       return res.status(401).json({
-        message: 'Invalid code. Use the 6-digit code from the backup entry you added to your authenticator at registration.',
+        message: 'Invalid or expired code. Use the backup code from your authenticator, or get a new code from another device.',
       });
     }
     const passwordHash = await bcrypt.hash(newPassword.trim(), SALT_ROUNDS);
@@ -172,6 +233,57 @@ exports.forgotPassword = async (req, res) => {
   } catch (err) {
     console.error('Error in forgotPassword:', err);
     return res.status(500).json({ message: 'Failed to reset password' });
+  }
+};
+
+exports.requestPasswordResetCode = async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ message: 'Firestore is not configured' });
+    }
+    const uid = req.user?.uid;
+    if (!uid) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    const { deviceId } = req.body;
+    if (deviceId) {
+      const devicesSnap = await db.collection('devices').where('uid', '==', uid).get();
+      const sorted = devicesSnap.docs
+        .map((d) => d.data())
+        .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+      const firstDeviceId = sorted[0]?.deviceId;
+      if (firstDeviceId !== deviceId) {
+        return res.status(403).json({
+          message: 'Password reset code can only be generated from your primary device (Device 1). Open QSafe on that device.',
+        });
+      }
+    }
+    const userDoc = await db.collection(USERS_COLLECTION).doc(uid).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const user = userDoc.data();
+    const email = (user.email || '').trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ message: 'No email on account' });
+    }
+    const code = crypto.randomInt(0, 1000000).toString().padStart(6, '0');
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    await db.collection(PASSWORD_RESET_CODES_COLLECTION).add({
+      uid,
+      email,
+      code,
+      expiresAt: expiresAt.toISOString(),
+      createdAt: new Date().toISOString(),
+    });
+    return res.status(200).json({
+      code,
+      expiresAt: expiresAt.toISOString(),
+      message: 'Use this code within 10 minutes on the device where you forgot your password.',
+    });
+  } catch (err) {
+    console.error('Error in requestPasswordResetCode:', err);
+    return res.status(500).json({ message: 'Failed to generate reset code' });
   }
 };
 
@@ -363,20 +475,21 @@ exports.login = async (req, res) => {
     });
     console.log('[MFA] Challenge created for uid=%s, requestingDeviceId=%s', uid, deviceId);
 
-    // Push to other devices (so user sees approve/deny quickly)
-    const messages = [];
-    devicesSnap.docs.forEach((d) => {
-      const device = d.data();
-      if (device.deviceId !== deviceId && Expo.isExpoPushToken(device.pushToken)) {
-        messages.push({
-          to: device.pushToken,
+    // Push only to device 1 (first device by createdAt) – not to device 2, 3, etc.
+    const sortedDevices = devicesSnap.docs
+      .map((d) => ({ ref: d.ref, ...d.data() }))
+      .filter((d) => d.deviceId !== deviceId && Expo.isExpoPushToken(d.pushToken))
+      .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    const firstDevice = sortedDevices[0];
+    const messages = firstDevice
+      ? [{
+          to: firstDevice.pushToken,
           sound: 'default',
           title: 'QSafe Login Request',
           body: 'A login was requested. Tap to approve or deny.',
           data: { type: 'mfa_challenge', challengeId, context },
-        });
-      }
-    });
+        }]
+      : [];
 
     if (messages.length > 0) {
       const chunks = expo.chunkPushNotifications(messages);
@@ -451,6 +564,19 @@ exports.getLoginStatus = async (req, res) => {
         return res.status(500).json({ message: 'User not found' });
       }
       const user = userSnap.data();
+      const allowMultipleDevices = user.preferences?.allowMultipleDevices ?? true;
+      if (!allowMultipleDevices) {
+        const devicesSnap = await db.collection('devices').where('uid', '==', challenge.uid).get();
+        const revokeBatch = db.batch();
+        for (const d of devicesSnap.docs) {
+          const dev = d.data();
+          if (dev.deviceId !== challenge.requestingDeviceId) {
+            const revRef = db.collection(USERS_COLLECTION).doc(challenge.uid).collection('revokedDevices').doc(dev.deviceId);
+            revokeBatch.set(revRef, { revokedAt: new Date().toISOString(), revokedBy: challenge.requestingDeviceId });
+          }
+        }
+        await revokeBatch.commit();
+      }
       const token = signJwt({ uid: challenge.uid, email: user.email });
 
       // Use challengeId as doc ID so multiple polls overwrite same doc = 1 entry per challenge
@@ -553,6 +679,20 @@ exports.loginWithOtp = async (req, res) => {
       resolvedAt: new Date().toISOString(),
       resolvedBy: 'otp',
     });
+
+    const allowMultipleDevices = user.preferences?.allowMultipleDevices ?? true;
+    if (!allowMultipleDevices) {
+      const devicesSnap = await db.collection('devices').where('uid', '==', challenge.uid).get();
+      const revokeBatch = db.batch();
+      for (const d of devicesSnap.docs) {
+        const dev = d.data();
+        if (dev.deviceId !== deviceId) {
+          const revRef = db.collection(USERS_COLLECTION).doc(challenge.uid).collection('revokedDevices').doc(dev.deviceId);
+          revokeBatch.set(revRef, { revokedAt: new Date().toISOString(), revokedBy: deviceId });
+        }
+      }
+      await revokeBatch.commit();
+    }
 
     const token = signJwt({ uid: challenge.uid, email: user.email });
     await db.collection(USERS_COLLECTION).doc(challenge.uid).collection('loginHistory').add({
