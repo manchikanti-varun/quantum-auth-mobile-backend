@@ -2,6 +2,7 @@
  * Auth controller – register, login, backup OTP, login history, change password.
  */
 const bcrypt = require('bcrypt');
+const { validateRegister, validateLogin, validatePassword } = require('./validation');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
@@ -104,8 +105,9 @@ exports.changePassword = async (req, res) => {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ message: 'Current password and new password are required' });
     }
-    if (newPassword.length < 8) {
-      return res.status(400).json({ message: 'New password must be at least 8 characters' });
+    const pwResult = validatePassword(newPassword);
+    if (!pwResult.valid) {
+      return res.status(400).json({ message: pwResult.message });
     }
     const doc = await db.collection(USERS_COLLECTION).doc(uid).get();
     if (!doc.exists) {
@@ -138,21 +140,18 @@ exports.register = async (req, res) => {
 
     const { email, password, displayName } = req.body;
 
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({ message: 'Email and password are required' });
+    const registerErrors = validateRegister({ email, password, displayName });
+    if (registerErrors.length > 0) {
+      return res.status(400).json({ message: registerErrors[0] });
     }
-    if (password.length < 8) {
-      return res
-        .status(400)
-        .json({ message: 'Password must be at least 8 characters' });
-    }
+
+    const trimmedEmail = String(email).trim().toLowerCase();
+    const trimmedDisplayName = displayName ? String(displayName).trim().slice(0, 50) || null : null;
 
     // Check if user already exists
     const existingSnap = await db
       .collection(USERS_COLLECTION)
-      .where('email', '==', email.toLowerCase())
+      .where('email', '==', trimmedEmail)
       .limit(1)
       .get();
 
@@ -162,13 +161,13 @@ exports.register = async (req, res) => {
         .json({ message: 'A user with this email already exists' });
     }
 
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const passwordHash = await bcrypt.hash(password.trim(), SALT_ROUNDS);
     const now = new Date().toISOString();
     const totpSecret = randomBase32(20); // for backup login when other device is offline
 
     const userDoc = {
-      email: email.toLowerCase(),
-      displayName: displayName || null,
+      email: trimmedEmail,
+      displayName: trimmedDisplayName,
       passwordHash,
       totpSecret,
       createdAt: now,
@@ -204,15 +203,16 @@ exports.login = async (req, res) => {
 
     const { email, password, deviceId } = req.body;
 
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({ message: 'Email and password are required' });
+    const loginErrors = validateLogin({ email, password });
+    if (loginErrors.length > 0) {
+      return res.status(400).json({ message: loginErrors[0] });
     }
+
+    const trimmedEmail = String(email).trim().toLowerCase();
 
     const userSnap = await db
       .collection(USERS_COLLECTION)
-      .where('email', '==', email.toLowerCase())
+      .where('email', '==', trimmedEmail)
       .limit(1)
       .get();
 

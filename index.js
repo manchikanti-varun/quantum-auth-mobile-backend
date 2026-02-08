@@ -39,8 +39,17 @@ app.use(express.json());
 
 // Rate limit auth endpoints (brute force protection)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // 30 requests per window per IP
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { message: 'Too many attempts. Try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Polling for MFA approval needs higher limit (Device 2 polls every 150ms)
+const authPollLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 6000, // ~400/min for 150ms poll
   message: { message: 'Too many attempts. Try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -56,8 +65,13 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API routes (auth routes are rate-limited)
-app.use('/api/auth', authLimiter, authRoutes);
+// API routes – auth: strict limit for login/register, higher limit for login-status (MFA poll)
+app.use('/api/auth', (req, res, next) => {
+  if (req.originalUrl.includes('login-status') && req.method === 'GET') {
+    return authPollLimiter(req, res, next);
+  }
+  return authLimiter(req, res, next);
+}, authRoutes);
 app.use('/api/totp', totpRoutes);
 app.use('/api/devices', deviceRoutes);
 app.use('/api/mfa', mfaRoutes);
