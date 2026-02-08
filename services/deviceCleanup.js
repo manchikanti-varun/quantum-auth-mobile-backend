@@ -1,7 +1,4 @@
-/**
- * Removes duplicate device records (same uid+deviceId). Keeps most recent per key.
- * @module services/deviceCleanup
- */
+/** Deduplicates devices collection: keeps most recent per uid+deviceId. */
 const { db } = require('../firebase');
 
 const DEVICES_COLLECTION = 'devices';

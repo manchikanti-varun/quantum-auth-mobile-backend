@@ -1,9 +1,17 @@
 /**
- * QSafe Backend – Express server. Auth, TOTP, devices, MFA routes.
- * @module index
+ * QSafe Backend – Express API server.
+ * Auth (register/login), devices, MFA (polling), TOTP, PQC JWT/Kyber.
  */
-
 require('dotenv').config({ silent: true, override: true });
+
+process.on('uncaughtException', (err) => console.error('[uncaughtException]', err));
+process.on('unhandledRejection', (reason) => console.error('[unhandledRejection]', reason));
+
+if (!process.env.PQC_JWT_PUBLIC_KEY || !process.env.PQC_JWT_PRIVATE_KEY) {
+  console.error('PQC JWT keys not configured. Run: npm run generate:pqc and add keys to .env');
+  process.exit(1);
+}
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -16,16 +24,19 @@ const mfaRoutes = require('./mfaRoutes');
 const isProd = process.env.NODE_ENV === 'production';
 
 if (isProd) {
-  const required = ['JWT_SECRET', 'FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'];
+  const required = [
+    'PQC_JWT_PUBLIC_KEY',
+    'PQC_JWT_PRIVATE_KEY',
+    'PQC_KYBER_PUBLIC_KEY',
+    'PQC_KYBER_PRIVATE_KEY',
+    'FIREBASE_PROJECT_ID',
+    'FIREBASE_CLIENT_EMAIL',
+    'FIREBASE_PRIVATE_KEY',
+  ];
   const missing = required.filter((k) => !process.env[k]?.trim());
   if (missing.length > 0) {
     console.error('Production requires these env vars:', missing.join(', '));
-    process.exit(1);
-  }
-  const weak = ['dev_secret', 'change_me', 'your_jwt_secret', 'secret', 'test'];
-  const sec = (process.env.JWT_SECRET || '').toLowerCase();
-  if (sec.length < 32 || weak.some((w) => sec.includes(w))) {
-    console.error('Production requires a strong JWT_SECRET (32+ chars, no weak values)');
+    console.error('Run: npm run generate:pqc');
     process.exit(1);
   }
 }
@@ -48,7 +59,7 @@ const authLimiter = rateLimit({
 
 const authPollLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 6000, // ~400/min for 150ms poll
+  max: 6000,
   message: { message: 'Too many attempts. Try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -60,9 +71,9 @@ const { cleanupDuplicateDevices } = require('./services/deviceCleanup');
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 function scheduleDeviceCleanup() {
   if (!db) return;
-  cleanupDuplicateDevices().catch(() => {});
+  cleanupDuplicateDevices().catch((err) => console.error('[deviceCleanup]', err?.message || err));
   setInterval(() => {
-    cleanupDuplicateDevices().catch(() => {});
+    cleanupDuplicateDevices().catch((err) => console.error('[deviceCleanup]', err?.message || err));
   }, TWENTY_FOUR_HOURS_MS);
 }
 app.get('/health', (req, res) => {
@@ -71,6 +82,16 @@ app.get('/health', (req, res) => {
     service: 'qsafe-backend',
     firestore: !!db,
   });
+});
+
+app.get('/api/pqc/kyber-public-key', async (req, res) => {
+  try {
+    const kyber = require('./services/kyber');
+    const pkHex = await kyber.getServerPublicKey();
+    res.json({ publicKey: pkHex, algorithm: 'ML-KEM-768' });
+  } catch (err) {
+    res.status(500).json({ message: 'PQC Kyber not configured' });
+  }
 });
 
 app.use('/api/auth', (req, res, next) => {
@@ -85,6 +106,7 @@ app.use('/api/mfa', mfaRoutes);
 
 app.listen(PORT, () => {
   scheduleDeviceCleanup();
+  console.log(`QSafe backend running at http://localhost:${PORT}`);
 }).on('error', (err) => {
   process.exit(1);
 });

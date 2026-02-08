@@ -7,6 +7,7 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "cleanup:devices": "node scripts/cleanup-duplicate-devices.js",
+    "generate:pqc": "node scripts/generatePqcKeys.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -23,7 +24,7 @@
     "express-rate-limit": "^8.2.1",
     "firebase-admin": "^13.6.1",
     "helmet": "^8.1.0",
-    "jsonwebtoken": "^9.0.3",
+    "mlkem": "^2.5.0",
     "qrcode": "^1.5.4",
     "uuid": "^9.0.0"
   },

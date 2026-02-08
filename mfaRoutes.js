@@ -1,7 +1,4 @@
-/**
- * MFA routes. Pending challenges, resolve with PQC signature, generate backup OTP, history.
- * @module mfaRoutes
- */
+/** MFA: pending challenges (polling), resolve (PQC signature), backup OTP, history. */
 const express = require('express');
 const { db } = require('./firebase');
 const { Expo } = require('expo-server-sdk');
@@ -36,7 +33,6 @@ router.get('/pending', authMiddleware, async (req, res) => {
       return res.status(401).json({ message: 'This device has been revoked. Please log in again.' });
     }
 
-    // Verify device belongs to authenticated user
     const deviceSnap = await db
       .collection('devices')
       .where('deviceId', '==', deviceId)
@@ -48,7 +44,6 @@ router.get('/pending', authMiddleware, async (req, res) => {
       return res.status(404).json({ message: 'Device not found' });
     }
 
-    // Find pending challenge for this user
     const challengeSnap = await db
       .collection(MFA_CHALLENGES_COLLECTION)
       .where('uid', '==', uid)
@@ -78,7 +73,6 @@ router.get('/pending', authMiddleware, async (req, res) => {
       return res.status(200).json({ challenge: null });
     }
 
-    // Check expiration
     if (new Date(challenge.expiresAt) < new Date()) {
       await challengeSnap.docs[0].ref.update({ status: 'expired' });
       return res.status(200).json({ challenge: null });
@@ -170,6 +164,9 @@ router.post('/resolve', authMiddleware, async (req, res) => {
         return res.status(400).json({ message: 'Signature verification failed' });
       }
     } else if (deviceDoc?.pqcAlgorithm === 'Mock-Dilithium') {
+      return res.status(400).json({
+        message: 'Mock PQC is no longer supported. Please log in again to re-register with real Dilithium2.',
+      });
     } else if (deviceId && (!deviceDoc?.pqcPublicKey || !deviceDoc?.pqcAlgorithm)) {
       return res.status(400).json({
         message: 'Device missing PQC keys. Please log in again to re-register.',

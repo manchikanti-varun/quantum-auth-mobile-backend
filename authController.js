@@ -1,12 +1,9 @@
-/**
- * Auth controller. Register, login, MFA, backup OTP, password reset, preferences.
- * @module authController
- */
+/** Auth: register, login, MFA challenges, backup OTP, password reset, preferences. */
 const bcrypt = require('bcrypt');
 const { validateRegister, validateLogin, validatePassword, validateSecurityCode } = require('./validation');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
+const pqcJwt = require('./services/pqcJwt');
 const { db, admin } = require('./firebase');
 const { Expo } = require('expo-server-sdk');
 
@@ -64,11 +61,7 @@ function verifyTotp(secretBase32, code) {
 }
 
 function signJwt(payload) {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error('JWT_SECRET is not set');
-  }
-  return jwt.sign(payload, secret, { expiresIn: '1h' });
+  return pqcJwt.sign(payload);
 }
 
 exports.getMe = async (req, res) => {

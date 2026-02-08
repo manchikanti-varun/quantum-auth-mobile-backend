@@ -1,7 +1,6 @@
 /**
- * Firebase Admin SDK initialization. Firestore for users, devices, MFA challenges.
- * Handles Railway env (quoted FIREBASE_PRIVATE_KEY with escaped newlines).
- * @module firebase
+ * Firebase Admin SDK. Firestore for users, devices, MFA challenges.
+ * Supports FIREBASE_PRIVATE_KEY with escaped \\n (e.g. Railway).
  */
 const admin = require('firebase-admin');
 
@@ -25,7 +24,15 @@ if (!admin.apps.length) {
           privateKey,
         }),
       });
-    } catch (e) {}
+    } catch (e) {
+      console.error('[Firebase] Init failed:', e.message);
+    }
+  } else {
+    const missing = [];
+    if (!projectId) missing.push('FIREBASE_PROJECT_ID');
+    if (!clientEmail) missing.push('FIREBASE_CLIENT_EMAIL');
+    if (!privateKey) missing.push('FIREBASE_PRIVATE_KEY');
+    if (missing.length) console.error('[Firebase] Missing:', missing.join(', '));
   }
 }
 

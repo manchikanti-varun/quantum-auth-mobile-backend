@@ -1,120 +1,62 @@
 # QSafe Backend
 
-Node.js + Express API for QSafe – quantum-safe authenticator. Handles auth, device registration, MFA challenges, and TOTP backup.
+Node.js + Express API for QSafe. PQC JWT (Dilithium2), Firebase Firestore, MFA challenges.
 
-## Features
+## Requirements
 
-- **Auth**: Register, login, JWT tokens
-- **MFA**: Approve/deny login on another device (PQC signatures)
-- **TOTP**: Provision QR codes for authenticator apps
-- **Devices**: Register devices with PQC keys, push notifications
-- **Production**: Helmet, rate limiting, env validation, CORS
-
----
+- Node.js 20+
+- Firebase project with Firestore
 
 ## Setup
 
 ```bash
 npm install
 cp .env.example .env
+npm run generate:pqc
 ```
 
-Edit `.env` with your credentials.
-
----
+Add generated PQC keys to `.env`. Add Firebase service account credentials from Firebase Console → Project Settings → Service Accounts.
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `PORT` | No | Server port (default: 4000) |
+| `PORT` | No | Port (default: 4000) |
 | `NODE_ENV` | No | `development` or `production` |
-| `JWT_SECRET` | Yes | Secret for signing JWTs (32+ chars in production) |
+| `PQC_JWT_PUBLIC_KEY` | Yes | Dilithium2 public key |
+| `PQC_JWT_PRIVATE_KEY` | Yes | Dilithium2 private key |
+| `PQC_KYBER_PUBLIC_KEY` | Yes | ML-KEM-768 public key |
+| `PQC_KYBER_PRIVATE_KEY` | Yes | ML-KEM-768 private key |
 | `FIREBASE_PROJECT_ID` | Yes | Firebase project ID |
-| `FIREBASE_CLIENT_EMAIL` | Yes | Firebase service account email |
-| `FIREBASE_PRIVATE_KEY` | Yes | Firebase private key (use `\n` for newlines) |
-| `CORS_ORIGIN` | No | Comma-separated allowed origins |
-
----
+| `FIREBASE_CLIENT_EMAIL` | Yes | Service account email |
+| `FIREBASE_PRIVATE_KEY` | Yes | Private key (`\n` for newlines) |
+| `CORS_ORIGIN` | No | Allowed origins (comma-separated) |
 
 ## Run
 
-**Development:** `NODE_ENV=development npm run dev`  
-**Production:** `npm start`
-
-Server runs at `http://localhost:4000` (or `PORT` from `.env`).
-
----
-
-## API Reference
-
-### Auth
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/api/auth/register` | No | Register user |
-| POST | `/api/auth/login` | No | Login |
-| GET | `/api/auth/login-status` | No | Poll for MFA result |
-| POST | `/api/auth/login-with-otp` | No | Complete login with 6-digit backup code |
-| GET | `/api/auth/me` | JWT | Get profile |
-| POST | `/api/auth/change-password` | JWT | Change password |
-| POST | `/api/auth/setup-backup-otp` | JWT | Set backup TOTP |
-| GET | `/api/auth/login-history` | JWT | Login history |
-
-### TOTP
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/api/totp/provision` | JWT | Generate TOTP QR |
-
-### MFA
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/api/mfa/pending` | JWT | Get pending challenge |
-| POST | `/api/mfa/resolve` | JWT | Approve/deny (PQC signature) |
-| POST | `/api/mfa/generate-code` | JWT | Generate one-time code |
-| GET | `/api/mfa/history` | JWT | MFA history |
-
-### Devices
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/api/devices/register` | JWT | Register device + PQC key + push token |
-
-### Health
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-
----
-
-## Deploy to Railway
-
-1. Create a Railway project and connect this repo.
-2. Add variables in **Settings → Variables**:
-   - `NODE_ENV` = `production`
-   - `JWT_SECRET` (strong, 32+ chars)
-   - `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`
-   - `CORS_ORIGIN` (optional)
-
-3. Deploy. Railway sets `PORT` automatically.
-
-**FIREBASE_PRIVATE_KEY format** – Single string with `\n` for line breaks:
-
-```
------BEGIN PRIVATE KEY-----\nMIIEvQIBADANB...\n-----END PRIVATE KEY-----\n
+```bash
+npm run dev    # Development (nodemon)
+npm start      # Production
 ```
 
----
+## API
 
-## Production Checklist
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /health` | No | Health check |
+| `POST /api/auth/register` | No | Register |
+| `POST /api/auth/login` | No | Login |
+| `GET /api/auth/login-status` | No | Poll MFA result |
+| `GET /api/auth/me` | JWT | Profile |
+| `POST /api/devices/register` | JWT | Register device |
+| `GET /api/mfa/pending` | JWT | Pending MFA |
+| `POST /api/mfa/resolve` | JWT | Approve/deny |
+| `GET /api/pqc/kyber-public-key` | No | Kyber public key |
 
-- [ ] `NODE_ENV=production`
-- [ ] Strong `JWT_SECRET` (32+ chars)
-- [ ] Firebase credentials set
-- [ ] `CORS_ORIGIN` set (optional)
+## Deploy (Railway)
 
-**Health check:** `curl https://your-app.up.railway.app/health`  
-Expected: `{"status":"ok","service":"qsafe-backend","firestore":true}`
+1. Connect repo
+2. Add env vars (PQC keys, Firebase)
+3. Deploy
+
+Health check: `GET /health` → `{"status":"ok","firestore":true}`

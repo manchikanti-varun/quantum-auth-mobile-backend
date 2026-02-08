@@ -1,7 +1,4 @@
-/**
- * Device routes. Register device with PQC key, list devices, revoke trust.
- * @module deviceRoutes
- */
+/** Device registration (PQC key), list, revoke. */
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('./firebase');
@@ -54,7 +51,7 @@ router.post('/register', authMiddleware, async (req, res) => {
     }
 
     const uid = req.user.uid;
-    const { deviceId, pqcPublicKey, pqcAlgorithm, platform, pushToken, rememberDevice } =
+    const { deviceId, pqcPublicKey, pqcAlgorithm, kyberPublicKey, kyberAlgorithm, platform, pushToken, rememberDevice } =
       req.body;
 
     if (!deviceId || typeof deviceId !== 'string' || !deviceId.trim()) {
@@ -95,6 +92,8 @@ router.post('/register', authMiddleware, async (req, res) => {
       deviceId: finalDeviceId,
       pqcPublicKey,
       pqcAlgorithm,
+      kyberPublicKey: kyberPublicKey || null,
+      kyberAlgorithm: kyberAlgorithm || null,
       platform: platform || null,
       pushToken: pushToken || null,
       trustedUntil: rememberDevice ? trustedUntil : null,

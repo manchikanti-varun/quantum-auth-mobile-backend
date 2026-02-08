@@ -1,7 +1,4 @@
-/**
- * TOTP routes. Provision QR for TOTP enrollment. Requires JWT.
- * @module totpRoutes
- */
+/** TOTP provisioning: generate otpauth QR. Requires JWT. */
 const express = require('express');
 const QRCode = require('qrcode');
 const crypto = require('crypto');

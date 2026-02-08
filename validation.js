@@ -1,7 +1,4 @@
-/**
- * Auth validation. Email, password, display name, security code.
- * @module validation
- */
+/** Email, password, display name, security code validation. */
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_MIN_LENGTH = 8;
