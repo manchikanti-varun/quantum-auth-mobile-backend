@@ -57,6 +57,17 @@ const authPollLimiter = rateLimit({
 
 // Health check
 const { db } = require('./firebase');
+const { cleanupDuplicateDevices } = require('./services/deviceCleanup');
+
+// Cleanup duplicate devices: on startup, then every 24 hours
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+function scheduleDeviceCleanup() {
+  if (!db) return;
+  cleanupDuplicateDevices().catch((e) => console.error('[DeviceCleanup]', e?.message || e));
+  setInterval(() => {
+    cleanupDuplicateDevices().catch((e) => console.error('[DeviceCleanup]', e?.message || e));
+  }, TWENTY_FOUR_HOURS_MS);
+}
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -78,6 +89,7 @@ app.use('/api/mfa', mfaRoutes);
 
 app.listen(PORT, () => {
   console.log(`QSafe backend listening on port ${PORT}`);
+  scheduleDeviceCleanup();
 }).on('error', (err) => {
   console.error('Server failed to start:', err.message);
   process.exit(1);

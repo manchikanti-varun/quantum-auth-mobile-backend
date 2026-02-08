@@ -407,12 +407,18 @@ exports.getLoginStatus = async (req, res) => {
       }
       const user = userSnap.data();
       const token = signJwt({ uid: challenge.uid, email: user.email });
-      await db.collection(USERS_COLLECTION).doc(challenge.uid).collection('loginHistory').add({
-        deviceId: challenge.requestingDeviceId,
-        ip: challenge.context?.ip || '',
-        method: 'mfa_approved',
-        timestamp: new Date().toISOString(),
-      });
+
+      // Only add login history once per challenge (Device 2 polls every ~300ms; avoid duplicates)
+      if (!challenge.loginHistoryRecorded) {
+        await db.collection(USERS_COLLECTION).doc(challenge.uid).collection('loginHistory').add({
+          deviceId: challenge.requestingDeviceId,
+          ip: challenge.context?.ip || '',
+          method: 'mfa_approved',
+          timestamp: new Date().toISOString(),
+        });
+        await challengeDoc.ref.update({ loginHistoryRecorded: true });
+      }
+
       return res.status(200).json({
         status: 'approved',
         token,
