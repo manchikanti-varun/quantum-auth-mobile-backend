@@ -535,6 +535,13 @@ exports.getLoginHistory = async (req, res) => {
     if (!uid) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
+    const deviceId = req.query?.deviceId;
+    if (deviceId) {
+      const revokedDoc = await db.collection(USERS_COLLECTION).doc(uid).collection('revokedDevices').doc(deviceId).get();
+      if (revokedDoc.exists) {
+        return res.status(401).json({ message: 'This device has been revoked. Please log in again.' });
+      }
+    }
     const [historySnap, devicesSnap] = await Promise.all([
       db.collection(USERS_COLLECTION).doc(uid).collection('loginHistory').orderBy('timestamp', 'desc').limit(50).get(),
       db.collection('devices').where('uid', '==', uid).get(),
@@ -573,6 +580,10 @@ exports.deleteLoginHistoryEntry = async (req, res) => {
       return res.status(403).json({ message: 'Cannot delete first device login' });
     }
     await docRef.delete();
+    await db.collection(USERS_COLLECTION).doc(uid).collection('revokedDevices').doc(entryDeviceId).set({
+      revokedAt: new Date().toISOString(),
+      revokedBy: currentDeviceId,
+    });
     return res.status(200).json({ message: 'Deleted' });
   } catch (err) {
     console.error('Error in deleteLoginHistoryEntry:', err);

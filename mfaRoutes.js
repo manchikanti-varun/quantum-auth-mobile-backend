@@ -34,6 +34,11 @@ router.get('/pending', authMiddleware, async (req, res) => {
 
     const uid = req.user.uid;
 
+    const revokedDoc = await db.collection('users').doc(uid).collection('revokedDevices').doc(deviceId).get();
+    if (revokedDoc.exists) {
+      return res.status(401).json({ message: 'This device has been revoked. Please log in again.' });
+    }
+
     // Verify device belongs to authenticated user
     const deviceSnap = await db
       .collection('devices')
