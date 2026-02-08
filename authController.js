@@ -85,7 +85,7 @@ exports.getMe = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
     const { email, displayName } = doc.data();
-    return res.status(200).json({ email: email || '', displayName: displayName || null });
+    return res.status(200).json({ uid, email: email || '', displayName: displayName || null });
   } catch (err) {
     console.error('Error in getMe:', err);
     return res.status(500).json({ message: 'Failed to fetch profile' });
@@ -127,6 +127,51 @@ exports.changePassword = async (req, res) => {
   } catch (err) {
     console.error('Error in changePassword:', err);
     return res.status(500).json({ message: 'Failed to change password' });
+  }
+};
+
+exports.forgotPassword = async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ message: 'Firestore is not configured' });
+    }
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ message: 'Email, code, and new password are required' });
+    }
+    const pwResult = validatePassword(newPassword);
+    if (!pwResult.valid) {
+      return res.status(400).json({ message: pwResult.message });
+    }
+    const trimmedEmail = String(email).trim().toLowerCase();
+    const userSnap = await db
+      .collection(USERS_COLLECTION)
+      .where('email', '==', trimmedEmail)
+      .limit(1)
+      .get();
+    if (userSnap.empty) {
+      return res.status(404).json({ message: 'Email not found' });
+    }
+    const doc = userSnap.docs[0];
+    const user = doc.data();
+    const codeStr = String(code).replace(/\s/g, '');
+    if (!/^\d{6}$/.test(codeStr)) {
+      return res.status(400).json({ message: 'Code must be 6 digits' });
+    }
+    if (!user.totpSecret || !verifyTotp(user.totpSecret, codeStr)) {
+      return res.status(401).json({
+        message: 'Invalid code. Use the 6-digit code from the backup entry you added to your authenticator at registration.',
+      });
+    }
+    const passwordHash = await bcrypt.hash(newPassword.trim(), SALT_ROUNDS);
+    await doc.ref.update({
+      passwordHash,
+      updatedAt: new Date().toISOString(),
+    });
+    return res.status(200).json({ message: 'Password updated. You can now sign in.' });
+  } catch (err) {
+    console.error('Error in forgotPassword:', err);
+    return res.status(500).json({ message: 'Failed to reset password' });
   }
 };
 
@@ -408,16 +453,14 @@ exports.getLoginStatus = async (req, res) => {
       const user = userSnap.data();
       const token = signJwt({ uid: challenge.uid, email: user.email });
 
-      // Only add login history once per challenge (Device 2 polls every ~300ms; avoid duplicates)
-      if (!challenge.loginHistoryRecorded) {
-        await db.collection(USERS_COLLECTION).doc(challenge.uid).collection('loginHistory').add({
-          deviceId: challenge.requestingDeviceId,
-          ip: challenge.context?.ip || '',
-          method: 'mfa_approved',
-          timestamp: new Date().toISOString(),
-        });
-        await challengeDoc.ref.update({ loginHistoryRecorded: true });
-      }
+      // Use challengeId as doc ID so multiple polls overwrite same doc = 1 entry per challenge
+      const historyRef = db.collection(USERS_COLLECTION).doc(challenge.uid).collection('loginHistory').doc(challenge.challengeId);
+      await historyRef.set({
+        deviceId: challenge.requestingDeviceId,
+        ip: challenge.context?.ip || '',
+        method: 'mfa_approved',
+        timestamp: new Date().toISOString(),
+      }, { merge: true });
 
       return res.status(200).json({
         status: 'approved',

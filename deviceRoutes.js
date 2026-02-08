@@ -78,12 +78,16 @@ router.post('/revoke', authMiddleware, async (req, res) => {
     const { deviceId } = req.body;
     if (!deviceId) return res.status(400).json({ message: 'deviceId required' });
 
+    const allDevicesSnap = await db.collection(DEVICES_COLLECTION).where('uid', '==', uid).get();
+    if (allDevicesSnap.size <= 1) {
+      return res.status(200).json({ message: 'Device trust revoked' });
+    }
+
     const docRef = db.collection(DEVICES_COLLECTION).doc(`${uid}_${deviceId}`);
     const doc = await docRef.get();
     if (doc.exists) {
       await docRef.update({ trustedUntil: null, updatedAt: new Date().toISOString() });
     } else {
-      // Fallback for legacy docs with auto-generated IDs
       const snap = await db
         .collection(DEVICES_COLLECTION)
         .where('uid', '==', uid)
