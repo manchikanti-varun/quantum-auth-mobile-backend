@@ -11,7 +11,7 @@ const {
 
 const DILITHIUM_LEVEL = 2;
 const ALGORITHM = 'Dilithium2';
-const EXPIRES_IN_SEC = 3600;
+const EXPIRES_IN_SEC = 15 * 24 * 3600; // 15 days
 
 function base64urlEncode(data) {
   const buf = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8');

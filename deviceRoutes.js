@@ -145,6 +145,14 @@ router.post('/revoke', authMiddleware, async (req, res) => {
         await snap.docs[0].ref.update({ trustedUntil: null, updatedAt: new Date().toISOString() });
       }
     }
+
+    // Add to revokedDevices so revoked device gets 401 on next API call
+    const revokedRef = db.collection('users').doc(uid).collection('revokedDevices').doc(deviceId);
+    await revokedRef.set({
+      revokedAt: new Date().toISOString(),
+      revokedBy: req.headers['x-device-id'] || req.body.currentDeviceId || uid,
+    });
+
     return res.status(200).json({ message: 'Device trust revoked' });
   } catch (err) {
     return res.status(500).json({ message: 'Failed to revoke' });
