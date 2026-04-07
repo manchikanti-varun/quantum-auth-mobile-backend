@@ -76,6 +76,14 @@ function scheduleDeviceCleanup() {
     cleanupDuplicateDevices().catch((err) => console.error('[deviceCleanup]', err?.message || err));
   }, TWENTY_FOUR_HOURS_MS);
 }
+app.get('/', (req, res) => {
+  res.json({
+    service: 'qsafe-backend',
+    message: 'API is running. Use GET /health for status.',
+    health: '/health',
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
